@@ -18,7 +18,7 @@ protected:
         session_mgr = std::make_shared<SessionManager>();
         security_access = std::make_shared<SecurityAccess>(mock_sec);
 
-        dispatcher = std::make_unique<ServiceDispatcher>(mock_prov, session_mgr, security_access);
+        dispatcher = std::make_unique<ServiceDispatcher>(mock_prov, mock_sec, session_mgr, security_access);
 
         // Register default routes
         dispatcher->register_route(UdsService::ROUTINE_CONTROL, Rid::WRITE_VIN_ROUTINE, "PROV", true);

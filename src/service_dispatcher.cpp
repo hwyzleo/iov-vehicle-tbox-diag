@@ -5,9 +5,10 @@ namespace tbox {
 namespace diag {
 
 ServiceDispatcher::ServiceDispatcher(std::shared_ptr<ProvInterface> prov,
+                                     std::shared_ptr<SecInterface> sec,
                                      std::shared_ptr<SessionManager> session_mgr,
                                      std::shared_ptr<SecurityAccess> security_access)
-    : prov_(prov), session_mgr_(session_mgr), security_access_(security_access) {}
+    : prov_(prov), sec_(sec), session_mgr_(session_mgr), security_access_(security_access) {}
 
 void ServiceDispatcher::register_route(uint8_t service_id, uint16_t did_or_rid,
                                         const std::string& downstream, bool requires_unlock) {
@@ -117,6 +118,12 @@ DiagResponse ServiceDispatcher::handle_security_access(const DiagRequest& reques
 DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& request) {
     std::cout << "[DIAG] RoutineControl rid=0x" << std::hex << request.did_or_rid
               << " payload_size=" << std::dec << request.payload.size() << std::endl;
+
+    uint16_t rid = request.did_or_rid;
+    if (rid == Rid::CERTIFICATE_REQUEST) {
+        return handle_certificate_request(request);
+    }
+
     // Check security access
     if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
@@ -131,7 +138,6 @@ DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& reques
                                         error_code_to_string(DiagErrorCode::PROV_UNAVAILABLE));
     }
 
-    uint16_t rid = request.did_or_rid;
     if (rid == Rid::WRITE_VIN_ROUTINE) {
         // Extract VIN from payload (17 bytes)
         if (request.payload.size() < 17) {
@@ -164,6 +170,63 @@ DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& reques
     return create_negative_response(UdsService::ROUTINE_CONTROL,
                                     Nrc::REQUEST_OUT_OF_RANGE,
                                     "DIAG-1004");
+}
+
+DiagResponse ServiceDispatcher::handle_certificate_request(const DiagRequest& request) {
+    std::cout << "[DIAG] CertificateRequest rid=0x" << std::hex << request.did_or_rid
+              << " payload_size=" << std::dec << request.payload.size() << std::endl;
+
+    // 检查安全访问
+    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::SECURITY_ACCESS_DENIED,
+                                        error_code_to_string(DiagErrorCode::SECURITY_ACCESS_DENIED));
+    }
+
+    // 检查SEC服务可用性
+    if (!sec_ || !sec_->is_available()) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::CONDITIONS_NOT_CORRECT,
+                                        error_code_to_string(DiagErrorCode::SEC_UNAVAILABLE));
+    }
+
+    // 执行证书申请流程
+    // 1. 生成密钥对
+    if (!sec_->generate_key_pair()) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
+                                        error_code_to_string(DiagErrorCode::CERT_GENERATION_FAILED));
+    }
+
+    // 2. 获取CSR
+    std::vector<uint8_t> csr_der;
+    if (!sec_->get_csr(csr_der)) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
+                                        error_code_to_string(DiagErrorCode::CSR_CREATION_FAILED));
+    }
+
+    // 3. 提交CSR
+    if (!sec_->submit_csr()) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
+                                        error_code_to_string(DiagErrorCode::CERT_SUBMISSION_FAILED));
+    }
+
+    // 4. 注入证书（SEC服务内部处理证书获取和注入）
+    if (!sec_->inject_certificate({})) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
+                                        error_code_to_string(DiagErrorCode::CERT_INJECTION_FAILED));
+    }
+
+    // 返回正响应
+    std::vector<uint8_t> rid_echo = {
+        static_cast<uint8_t>((request.did_or_rid >> 8) & 0xFF),
+        static_cast<uint8_t>(request.did_or_rid & 0xFF)
+    };
+    return create_positive_response(UdsService::ROUTINE_CONTROL,
+                                    request.sub_function, rid_echo);
 }
 
 DiagResponse ServiceDispatcher::handle_read_data_by_identifier(const DiagRequest& request) {
