@@ -8,7 +8,8 @@
 #include "doip_adapter.h"
 #include "error_codes.h"
 #include "stub_sec.h"
-#include "stub_prov.h"
+#include "real_prov.h"
+#include "prov_service.h"
 
 using namespace tbox::diag;
 
@@ -40,7 +41,17 @@ int main() {
 
     auto service = std::make_unique<DiagService>(config);
     service->set_sec(std::make_shared<StubSecInterface>());
-    service->set_prov(std::make_shared<StubProvInterface>());
+    tbox::prov::ProvServiceConfig prov_config;
+    prov_config.storage_path = "/var/tbox/prov";
+    prov_config.enable_write_protection = true;
+    auto prov_service = std::make_shared<tbox::prov::ProvService>(prov_config);
+    auto prov_init = prov_service->initialize();
+    if (prov_init != tbox::prov::ErrorCode::SUCCESS) {
+        std::cerr << "Failed to initialize PROV service: "
+                  << tbox::prov::error_code_to_string(prov_init) << std::endl;
+        return 1;
+    }
+    service->set_prov(std::make_shared<RealProvAdapter>(prov_service));
     service->set_transport(doip);
 
     auto result = service->initialize();
