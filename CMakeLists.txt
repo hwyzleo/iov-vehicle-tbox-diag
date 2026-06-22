@@ -33,6 +33,10 @@ find_package(nlohmann_json REQUIRED)
 set(PROV_SOURCE_DIR ${PROJECT_SOURCE_DIR}/../iov-vehicle-tbox-prov)
 add_subdirectory(${PROV_SOURCE_DIR} ${CMAKE_BINARY_DIR}/prov EXCLUDE_FROM_ALL)
 
+# SEC library (sibling directory)
+set(SEC_SOURCE_DIR ${PROJECT_SOURCE_DIR}/../iov-vehicle-tbox-sec)
+add_subdirectory(${SEC_SOURCE_DIR} ${CMAKE_BINARY_DIR}/sec EXCLUDE_FROM_ALL)
+
 set(LIB_SOURCES
     src/diag_service.cpp
     src/session_manager.cpp
@@ -44,12 +48,13 @@ set(LIB_SOURCES
     src/doip_adapter.cpp
     src/do_can_adapter.cpp
     src/real_prov.cpp
+    src/real_sec_adapter.cpp
 )
 
 add_executable(TboxDiagService src/main.cpp ${LIB_SOURCES})
 target_include_directories(TboxDiagService PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(TboxDiagService PRIVATE ${PROJECT_SOURCE_DIR}/third_party/include)
-target_link_libraries(TboxDiagService PRIVATE TboxProvLib yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json)
+target_link_libraries(TboxDiagService PRIVATE TboxProvLib TboxSecLib yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json)
 
 enable_testing()
 add_executable(TboxDiagTests
@@ -65,5 +70,5 @@ add_executable(TboxDiagTests
     ${LIB_SOURCES}
 )
 target_include_directories(TboxDiagTests PRIVATE ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(TboxDiagTests PRIVATE TboxProvLib GTest::GTest GTest::Main yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json)
+target_link_libraries(TboxDiagTests PRIVATE TboxProvLib TboxSecLib GTest::GTest GTest::Main yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json)
 add_test(NAME TboxDiagTests COMMAND TboxDiagTests)
