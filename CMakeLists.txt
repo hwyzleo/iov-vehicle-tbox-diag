@@ -67,8 +67,10 @@ add_executable(TboxDiagTests
     tests/test_error_codes.cpp
     tests/test_transport_adapter.cpp
     tests/test_integration.cpp
+    tests/test_real_sec_adapter.cpp
+    tests/test_certificate_request.cpp
     ${LIB_SOURCES}
 )
 target_include_directories(TboxDiagTests PRIVATE ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(TboxDiagTests PRIVATE TboxProvLib TboxSecLib GTest::GTest GTest::Main yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json)
+target_link_libraries(TboxDiagTests PRIVATE TboxProvLib TboxSecLib GTest::GTest GTest::gmock GTest::Main yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json)
 add_test(NAME TboxDiagTests COMMAND TboxDiagTests)
