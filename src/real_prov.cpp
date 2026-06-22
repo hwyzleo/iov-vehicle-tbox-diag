@@ -61,6 +61,9 @@ VinReadResult RealProvAdapter::read_vin() {
         case prov::ProvisionState::FAILED:
             result.bind_state = "FAILED";
             break;
+        default:
+            result.bind_state = "UNKNOWN";
+            break;
     }
 
     result.valid = !result.vin.empty();
