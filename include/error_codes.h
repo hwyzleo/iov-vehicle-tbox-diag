@@ -27,6 +27,18 @@ enum class DiagErrorCode : uint32_t {
     // DIAG-1006: Request processing timeout
     REQUEST_TIMEOUT = 1006,
 
+    // DIAG-1007: Certificate generation failed
+    CERT_GENERATION_FAILED = 1007,
+
+    // DIAG-1008: CSR creation failed
+    CSR_CREATION_FAILED = 1008,
+
+    // DIAG-1009: Certificate submission failed
+    CERT_SUBMISSION_FAILED = 1009,
+
+    // DIAG-1010: Certificate injection failed
+    CERT_INJECTION_FAILED = 1010,
+
     // Internal error codes
     INTERNAL_ERROR = 9999,
     NOT_INITIALIZED = 9998,

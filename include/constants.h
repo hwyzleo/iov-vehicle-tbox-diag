@@ -37,6 +37,7 @@ namespace Did {
 // RID definitions
 namespace Rid {
     constexpr uint16_t WRITE_VIN_ROUTINE = 0xFF00;
+    constexpr uint16_t CERTIFICATE_REQUEST = 0xFF01;
 }
 
 // UDS Negative Response Codes (ISO 14229)
