@@ -35,7 +35,7 @@ DiagErrorCode DiagService::initialize_submodules() {
         std::cerr << "DIAG: PROV interface not set" << std::endl;
         return DiagErrorCode::PROV_UNAVAILABLE;
     }
-    dispatcher_ = std::make_shared<ServiceDispatcher>(prov_, session_mgr_, security_access_);
+    dispatcher_ = std::make_shared<ServiceDispatcher>(prov_, sec_, session_mgr_, security_access_);
 
     auto result = register_default_routes();
     if (result != DiagErrorCode::SUCCESS) {
@@ -49,6 +49,8 @@ DiagErrorCode DiagService::initialize_submodules() {
 DiagErrorCode DiagService::register_default_routes() {
     dispatcher_->register_route(UdsService::ROUTINE_CONTROL, Rid::WRITE_VIN_ROUTINE,
                                 "PROV", true);
+    dispatcher_->register_route(UdsService::ROUTINE_CONTROL, Rid::CERTIFICATE_REQUEST,
+                                "SEC", true);
     dispatcher_->register_route(UdsService::READ_DATA_BY_IDENTIFIER, Did::VIN,
                                 "PROV", false);
     dispatcher_->register_route(UdsService::READ_DATA_BY_IDENTIFIER, Did::BINDING_STATE,
@@ -158,6 +160,13 @@ void DiagService::set_prov(std::shared_ptr<ProvInterface> prov) {
 void DiagService::set_sec(std::shared_ptr<SecInterface> sec) {
     std::lock_guard<std::mutex> lock(mutex_);
     sec_ = sec;
+    if (security_access_) {
+        security_access_ = std::make_shared<SecurityAccess>(sec_);
+    }
+    if (dispatcher_) {
+        dispatcher_ = std::make_shared<ServiceDispatcher>(prov_, sec_, session_mgr_, security_access_);
+        register_default_routes();
+    }
 }
 
 } // namespace diag
