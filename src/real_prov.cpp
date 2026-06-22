@@ -66,7 +66,7 @@ VinReadResult RealProvAdapter::read_vin() {
             break;
     }
 
-    result.valid = !result.vin.empty();
+    result.valid = true;  // 初始状态无VIN是正常的
     std::cout << "[REAL-PROV] read_vin: " << result.vin
               << ", state: " << result.bind_state << std::endl;
 
