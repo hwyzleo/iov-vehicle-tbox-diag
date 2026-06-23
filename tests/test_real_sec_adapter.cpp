@@ -98,3 +98,58 @@ TEST_F(RealSecAdapterTest, InjectCertificateFailure) {
         .WillOnce(Return(ErrorCode::CERT_INSTALL_FAILED));
     EXPECT_FALSE(adapter_->inject_certificate(cert_der));
 }
+
+TEST_F(RealSecAdapterTest, GetSeedSuccess) {
+    std::vector<uint8_t> seed;
+    EXPECT_CALL(*mock_service_, is_initialized())
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mock_service_, get_seed(0x01, _))
+        .WillOnce([](uint8_t level, std::vector<uint8_t>& seed) {
+            seed = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
+                    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+            return ErrorCode::SUCCESS;
+        });
+    EXPECT_TRUE(adapter_->get_seed(0x01, seed));
+    EXPECT_EQ(seed.size(), 16u);
+}
+
+TEST_F(RealSecAdapterTest, GetSeedFailure) {
+    std::vector<uint8_t> seed;
+    EXPECT_CALL(*mock_service_, is_initialized())
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mock_service_, get_seed(0x01, _))
+        .WillOnce(Return(ErrorCode::SEED_GENERATION_FAILED));
+    EXPECT_FALSE(adapter_->get_seed(0x01, seed));
+}
+
+TEST_F(RealSecAdapterTest, VerifyKeySuccess) {
+    std::vector<uint8_t> key = {0xAA, 0xBB, 0xCC, 0xDD};
+    EXPECT_CALL(*mock_service_, is_initialized())
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mock_service_, verify_key(0x01, key))
+        .WillOnce(Return(ErrorCode::SUCCESS));
+    EXPECT_TRUE(adapter_->verify_key(0x01, key));
+}
+
+TEST_F(RealSecAdapterTest, VerifyKeyFailure) {
+    std::vector<uint8_t> key = {0xAA, 0xBB, 0xCC, 0xDD};
+    EXPECT_CALL(*mock_service_, is_initialized())
+        .WillOnce(Return(true));
+    EXPECT_CALL(*mock_service_, verify_key(0x01, key))
+        .WillOnce(Return(ErrorCode::KEY_VERIFICATION_FAILED));
+    EXPECT_FALSE(adapter_->verify_key(0x01, key));
+}
+
+TEST_F(RealSecAdapterTest, GetSeedWhenUnavailable) {
+    std::vector<uint8_t> seed;
+    EXPECT_CALL(*mock_service_, is_initialized())
+        .WillOnce(Return(false));
+    EXPECT_FALSE(adapter_->get_seed(0x01, seed));
+}
+
+TEST_F(RealSecAdapterTest, VerifyKeyWhenUnavailable) {
+    std::vector<uint8_t> key = {0xAA, 0xBB};
+    EXPECT_CALL(*mock_service_, is_initialized())
+        .WillOnce(Return(false));
+    EXPECT_FALSE(adapter_->verify_key(0x01, key));
+}

@@ -43,18 +43,22 @@ DiagErrorCode SecurityAccess::send_key(uint8_t level, const std::vector<uint8_t>
         return DiagErrorCode::SEC_UNAVAILABLE;
     }
 
+    // ISO 14229: sendKey level is even, requestSeed level is odd (sendKey - 1)
+    // Normalize to requestSeed level for state lookup
+    uint8_t seed_level = (level > 0) ? (level - 1) : level;
+
     // Check if seed was requested first
-    auto it = states_.find(level);
+    auto it = states_.find(seed_level);
     if (it == states_.end() || !it->second.seed_requested) {
         return DiagErrorCode::SECURITY_ACCESS_DENIED;
     }
 
     // Check if already locked out
-    if (is_locked_out(level)) {
+    if (is_locked_out(seed_level)) {
         return DiagErrorCode::SECURITY_ACCESS_DENIED;
     }
 
-    // Verify key with SEC
+    // Verify key with SEC (pass the actual sendKey level)
     if (!sec_->verify_key(level, key)) {
         // Increment attempt count
         it->second.attempt_count++;
@@ -79,7 +83,9 @@ DiagErrorCode SecurityAccess::send_key(uint8_t level, const std::vector<uint8_t>
 
 bool SecurityAccess::is_unlocked(uint8_t level) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = states_.find(level);
+    // Normalize: if level is even (sendKey), use level-1 (requestSeed) for state lookup
+    uint8_t seed_level = ((level & 0x01) == 0 && level > 0) ? (level - 1) : level;
+    auto it = states_.find(seed_level);
     if (it != states_.end()) {
         return it->second.unlocked;
     }

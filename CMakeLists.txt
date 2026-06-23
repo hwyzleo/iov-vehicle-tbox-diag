@@ -48,6 +48,7 @@ set(LIB_SOURCES
     src/doip_adapter.cpp
     src/do_can_adapter.cpp
     src/real_prov.cpp
+    src/prov_to_sec_adapter.cpp
 )
 
 # 创建diag_service库
@@ -66,7 +67,7 @@ target_link_libraries(real_sec_adapter
 )
 
 add_executable(TboxDiagService src/main.cpp)
-target_link_libraries(TboxDiagService PRIVATE diag_service_lib)
+target_link_libraries(TboxDiagService PRIVATE diag_service_lib real_sec_adapter)
 
 enable_testing()
 add_executable(TboxDiagTests

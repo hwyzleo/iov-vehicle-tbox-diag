@@ -36,13 +36,13 @@ TEST_F(SecurityAccessTest, RequestSeedSecUnavailable) {
 TEST_F(SecurityAccessTest, SendKeySuccess) {
     mock_sec->set_accept_all_keys(true);
 
-    // First request seed
+    // First request seed (UDS level 0x27)
     std::vector<uint8_t> seed;
     sec_access->request_seed(UdsSecurityLevel::LEVEL_27, seed);
 
-    // Then send key
+    // Then send key (UDS sendKey level = requestSeed + 1 = 0x28)
     std::vector<uint8_t> key = {0xAA, 0xBB, 0xCC, 0xDD};
-    auto result = sec_access->send_key(UdsSecurityLevel::LEVEL_27, key);
+    auto result = sec_access->send_key(UdsSecurityLevel::LEVEL_27 + 1, key);
     EXPECT_EQ(result, DiagErrorCode::SUCCESS);
 
     EXPECT_TRUE(sec_access->is_unlocked(UdsSecurityLevel::LEVEL_27));
@@ -50,7 +50,7 @@ TEST_F(SecurityAccessTest, SendKeySuccess) {
 
 TEST_F(SecurityAccessTest, SendKeyWithoutSeedRequest) {
     std::vector<uint8_t> key = {0xAA, 0xBB, 0xCC, 0xDD};
-    auto result = sec_access->send_key(UdsSecurityLevel::LEVEL_27, key);
+    auto result = sec_access->send_key(UdsSecurityLevel::LEVEL_27 + 1, key);
     EXPECT_EQ(result, DiagErrorCode::SECURITY_ACCESS_DENIED);
 }
 
@@ -62,7 +62,7 @@ TEST_F(SecurityAccessTest, SendKeyInvalidKey) {
     sec_access->request_seed(UdsSecurityLevel::LEVEL_27, seed);
 
     std::vector<uint8_t> wrong_key = {0xFF, 0xFF, 0xFF, 0xFF};
-    auto result = sec_access->send_key(UdsSecurityLevel::LEVEL_27, wrong_key);
+    auto result = sec_access->send_key(UdsSecurityLevel::LEVEL_27 + 1, wrong_key);
     EXPECT_EQ(result, DiagErrorCode::SECURITY_ACCESS_DENIED);
 
     EXPECT_FALSE(sec_access->is_unlocked(UdsSecurityLevel::LEVEL_27));
@@ -76,7 +76,7 @@ TEST_F(SecurityAccessTest, LockoutAfterMaxAttempts) {
         sec_access->request_seed(UdsSecurityLevel::LEVEL_27, seed);
 
         std::vector<uint8_t> wrong_key = {0xFF};
-        sec_access->send_key(UdsSecurityLevel::LEVEL_27, wrong_key);
+        sec_access->send_key(UdsSecurityLevel::LEVEL_27 + 1, wrong_key);
     }
 
     EXPECT_EQ(sec_access->get_attempt_count(UdsSecurityLevel::LEVEL_27),
@@ -99,7 +99,7 @@ TEST_F(SecurityAccessTest, Lock) {
     sec_access->request_seed(UdsSecurityLevel::LEVEL_27, seed);
 
     std::vector<uint8_t> key = {0xAA};
-    sec_access->send_key(UdsSecurityLevel::LEVEL_27, key);
+    sec_access->send_key(UdsSecurityLevel::LEVEL_27 + 1, key);
 
     EXPECT_TRUE(sec_access->is_unlocked(UdsSecurityLevel::LEVEL_27));
 
@@ -114,7 +114,7 @@ TEST_F(SecurityAccessTest, Reset) {
     sec_access->request_seed(UdsSecurityLevel::LEVEL_27, seed);
 
     std::vector<uint8_t> key = {0xAA};
-    sec_access->send_key(UdsSecurityLevel::LEVEL_27, key);
+    sec_access->send_key(UdsSecurityLevel::LEVEL_27 + 1, key);
 
     sec_access->reset();
     EXPECT_FALSE(sec_access->is_unlocked(UdsSecurityLevel::LEVEL_27));
@@ -128,7 +128,7 @@ TEST_F(SecurityAccessTest, SecUnavailableForSendKey) {
     mock_sec->set_available(false);
 
     std::vector<uint8_t> key = {0xAA};
-    auto result = sec_access->send_key(UdsSecurityLevel::LEVEL_27, key);
+    auto result = sec_access->send_key(UdsSecurityLevel::LEVEL_27 + 1, key);
     EXPECT_EQ(result, DiagErrorCode::SEC_UNAVAILABLE);
 }
 
