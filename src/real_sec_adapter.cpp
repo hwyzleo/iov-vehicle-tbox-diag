@@ -8,13 +8,37 @@ RealSecAdapter::RealSecAdapter(std::shared_ptr<sec::SecService> service)
     : service_(std::move(service)) {}
 
 bool RealSecAdapter::get_seed(uint8_t level, std::vector<uint8_t>& seed) {
-    // RealSecAdapter不处理安全访问，返回false
-    return false;
+    if (!is_available()) {
+        std::cerr << "[REAL-SEC] Service not available" << std::endl;
+        return false;
+    }
+
+    std::cout << "[REAL-SEC] get_seed level=" << static_cast<int>(level) << std::endl;
+    auto result = service_->get_seed(level, seed);
+    if (result != sec::ErrorCode::SUCCESS) {
+        std::cerr << "[REAL-SEC] get_seed failed: "
+                  << sec::error_code_to_string(result) << std::endl;
+        return false;
+    }
+
+    return true;
 }
 
 bool RealSecAdapter::verify_key(uint8_t level, const std::vector<uint8_t>& key) {
-    // RealSecAdapter不处理安全访问，返回false
-    return false;
+    if (!is_available()) {
+        std::cerr << "[REAL-SEC] Service not available" << std::endl;
+        return false;
+    }
+
+    std::cout << "[REAL-SEC] verify_key level=" << static_cast<int>(level) << std::endl;
+    auto result = service_->verify_key(level, key);
+    if (result != sec::ErrorCode::SUCCESS) {
+        std::cerr << "[REAL-SEC] verify_key failed: "
+                  << sec::error_code_to_string(result) << std::endl;
+        return false;
+    }
+
+    return true;
 }
 
 bool RealSecAdapter::is_available() const {
