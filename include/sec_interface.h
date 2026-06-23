@@ -5,6 +5,9 @@
 #include <string>
 
 namespace tbox {
+namespace sec {
+enum class ErrorCode : uint32_t;
+}
 namespace diag {
 
 class SecInterface {
