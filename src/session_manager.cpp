@@ -15,6 +15,10 @@ DiagErrorCode SessionManager::switch_session(uint8_t session_type, uint16_t sour
                                               TransportType transport) {
     std::lock_guard<std::mutex> lock(mutex_);
 
+    std::cout << "[SESSION] switch_session: requested=0x" << std::hex << (int)session_type
+              << " current=0x" << (int)session_.session_type
+              << " state=0x" << (int)session_.state << std::endl;
+
     // Check if session is already occupied by another tester
     if (session_.state == SessionState::ACTIVE &&
         session_.source_address != source_address &&
@@ -95,6 +99,8 @@ bool SessionManager::check_s3_timeout() {
         now - session_.last_tester_present_at).count();
 
     if (elapsed > Timing::S3_DEFAULT) {
+        std::cout << "[SESSION] S3 timeout! elapsed=" << elapsed << "ms > " << Timing::S3_DEFAULT
+                  << "ms, resetting to DEFAULT" << std::endl;
         session_.session_type = SessionType::DEFAULT;
         session_.state = SessionState::ACTIVE;
         session_.security_unlocked = false;

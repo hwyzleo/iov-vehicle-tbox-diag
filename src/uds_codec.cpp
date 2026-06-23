@@ -70,9 +70,7 @@ std::vector<uint8_t> UdsCodec::encode(const DiagResponse& response) {
 
     if (response.positive) {
         raw.push_back(response.service_id);
-        if (response.sub_function != 0) {
-            raw.push_back(response.sub_function);
-        }
+        raw.push_back(response.sub_function);
         raw.insert(raw.end(), response.payload.begin(), response.payload.end());
     } else {
         raw.push_back(0x7F);

@@ -85,10 +85,16 @@ bool SecurityAccess::is_unlocked(uint8_t level) const {
     std::lock_guard<std::mutex> lock(mutex_);
     // Normalize: if level is even (sendKey), use level-1 (requestSeed) for state lookup
     uint8_t seed_level = ((level & 0x01) == 0 && level > 0) ? (level - 1) : level;
+    std::cout << "[SEC] is_unlocked check: level=0x" << std::hex << (int)level
+              << " seed_level=0x" << (int)seed_level
+              << " states_size=" << std::dec << states_.size() << std::endl;
     auto it = states_.find(seed_level);
     if (it != states_.end()) {
+        std::cout << "[SEC] found state: unlocked=" << it->second.unlocked
+                  << " seed_requested=" << it->second.seed_requested << std::endl;
         return it->second.unlocked;
     }
+    std::cout << "[SEC] state not found for level 0x" << std::hex << (int)seed_level << std::endl;
     return false;
 }
 

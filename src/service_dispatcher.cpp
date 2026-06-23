@@ -42,6 +42,8 @@ DiagResponse ServiceDispatcher::dispatch(const DiagRequest& request) {
 
 DiagResponse ServiceDispatcher::handle_session_control(const DiagRequest& request) {
     uint8_t session_type = request.sub_function & 0x7F;
+    std::cout << "[DIAG] SessionControl: sub_function=0x" << std::hex << (int)request.sub_function
+              << " session_type=0x" << (int)session_type << std::endl;
 
     auto result = session_mgr_->switch_session(session_type, request.source_address,
                                                 request.transport);
@@ -125,7 +127,11 @@ DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& reques
 
     // 检查会话类型（证书相关操作只在 Programming Session 下可用）
     if (rid == Rid::GENERATE_KEY_PAIR || rid == Rid::READ_CSR || rid == Rid::INJECT_CERTIFICATE) {
-        if (session_mgr_->get_session().session_type != SessionType::PROGRAMMING) {
+        auto current_session = session_mgr_->get_session();
+        std::cout << "[DIAG] Certificate RID check: session_type=0x" << std::hex
+                  << (int)current_session.session_type << " expected=0x"
+                  << (int)SessionType::PROGRAMMING << std::endl;
+        if (current_session.session_type != SessionType::PROGRAMMING) {
             return create_negative_response(UdsService::ROUTINE_CONTROL,
                                             Nrc::SERVICE_NOT_SUPPORTED_IN_SESSION,
                                             error_code_to_string(DiagErrorCode::SESSION_STATE_NOT_ALLOWED));
@@ -243,7 +249,9 @@ DiagResponse ServiceDispatcher::handle_read_csr(const DiagRequest& request) {
 
     // 获取CSR
     std::vector<uint8_t> csr_der;
-    if (!sec_->get_csr(csr_der)) {
+    bool result = sec_->get_csr(csr_der);
+    std::cout << "[DIAG] get_csr result=" << result << " csr_size=" << csr_der.size() << std::endl;
+    if (!result) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::GENERAL_PROGRAMMING_FAILURE,
                                         error_code_to_string(DiagErrorCode::CSR_CREATION_FAILED));
@@ -255,6 +263,7 @@ DiagResponse ServiceDispatcher::handle_read_csr(const DiagRequest& request) {
         static_cast<uint8_t>(request.did_or_rid & 0xFF)
     };
     response_data.insert(response_data.end(), csr_der.begin(), csr_der.end());
+    std::cout << "[DIAG] ReadCSR response_size=" << response_data.size() << std::endl;
     return create_positive_response(UdsService::ROUTINE_CONTROL,
                                     request.sub_function, response_data);
 }
