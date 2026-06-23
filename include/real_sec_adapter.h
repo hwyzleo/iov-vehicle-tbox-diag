@@ -17,7 +17,7 @@ public:
     bool verify_key(uint8_t level, const std::vector<uint8_t>& key) override;
     bool is_available() const override;
 
-    // 新增方法
+    // 证书相关方法
     bool generate_key_pair() override;
     bool get_csr(std::vector<uint8_t>& csr_der) override;
     bool submit_csr() override;
