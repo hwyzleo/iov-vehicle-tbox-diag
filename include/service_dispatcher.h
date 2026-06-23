@@ -33,8 +33,11 @@ protected:
     DiagResponse handle_tester_present(const DiagRequest& request);
     DiagResponse handle_security_access(const DiagRequest& request);
     DiagResponse handle_routine_control(const DiagRequest& request);
-    DiagResponse handle_certificate_request(const DiagRequest& request);
     DiagResponse handle_read_data_by_identifier(const DiagRequest& request);
+
+    DiagResponse handle_generate_key_pair(const DiagRequest& request);
+    DiagResponse handle_read_csr(const DiagRequest& request);
+    DiagResponse handle_inject_certificate(const DiagRequest& request);
 
     DiagResponse create_positive_response(uint8_t service_id, uint8_t sub_function,
                                           const std::vector<uint8_t>& data);
