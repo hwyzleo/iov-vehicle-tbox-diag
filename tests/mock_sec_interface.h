@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sec_interface.h"
+#include "error_codes.h"
 #include <map>
 #include <vector>
 

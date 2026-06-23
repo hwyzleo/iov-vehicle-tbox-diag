@@ -49,7 +49,11 @@ DiagErrorCode DiagService::initialize_submodules() {
 DiagErrorCode DiagService::register_default_routes() {
     dispatcher_->register_route(UdsService::ROUTINE_CONTROL, Rid::WRITE_VIN_ROUTINE,
                                 "PROV", true);
-    dispatcher_->register_route(UdsService::ROUTINE_CONTROL, Rid::CERTIFICATE_REQUEST,
+    dispatcher_->register_route(UdsService::ROUTINE_CONTROL, Rid::GENERATE_KEY_PAIR,
+                                "SEC", true);
+    dispatcher_->register_route(UdsService::ROUTINE_CONTROL, Rid::READ_CSR,
+                                "SEC", true);
+    dispatcher_->register_route(UdsService::ROUTINE_CONTROL, Rid::INJECT_CERTIFICATE,
                                 "SEC", true);
     dispatcher_->register_route(UdsService::READ_DATA_BY_IDENTIFIER, Did::VIN,
                                 "PROV", false);

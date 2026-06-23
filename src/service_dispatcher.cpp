@@ -1,4 +1,5 @@
 #include "service_dispatcher.h"
+#include "sec_service.h"
 #include <iostream>
 
 namespace tbox {
@@ -101,7 +102,8 @@ DiagResponse ServiceDispatcher::handle_security_access(const DiagRequest& reques
         return create_positive_response(UdsService::SECURITY_ACCESS,
                                         request.sub_function, seed);
     } else {
-        auto result = security_access_->send_key(level, request.payload);
+        // sendKey: pass the actual sendKey level (even), not the normalized requestSeed level (odd)
+        auto result = security_access_->send_key(raw_level, request.payload);
         if (result != DiagErrorCode::SUCCESS) {
             uint8_t nrc = Nrc::INVALID_KEY;
             if (result == DiagErrorCode::SEC_UNAVAILABLE) {
@@ -120,18 +122,35 @@ DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& reques
               << " payload_size=" << std::dec << request.payload.size() << std::endl;
 
     uint16_t rid = request.did_or_rid;
-    if (rid == Rid::CERTIFICATE_REQUEST) {
-        return handle_certificate_request(request);
+
+    // 检查会话类型（证书相关操作只在 Programming Session 下可用）
+    if (rid == Rid::GENERATE_KEY_PAIR || rid == Rid::READ_CSR || rid == Rid::INJECT_CERTIFICATE) {
+        if (session_mgr_->get_session().session_type != SessionType::PROGRAMMING) {
+            return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                            Nrc::SERVICE_NOT_SUPPORTED_IN_SESSION,
+                                            error_code_to_string(DiagErrorCode::SESSION_STATE_NOT_ALLOWED));
+        }
     }
 
-    // Check security access
+    // 新路由
+    if (rid == Rid::GENERATE_KEY_PAIR) {
+        return handle_generate_key_pair(request);
+    }
+    if (rid == Rid::READ_CSR) {
+        return handle_read_csr(request);
+    }
+    if (rid == Rid::INJECT_CERTIFICATE) {
+        return handle_inject_certificate(request);
+    }
+
+    // 检查安全访问
     if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::SECURITY_ACCESS_DENIED,
                                         error_code_to_string(DiagErrorCode::SECURITY_ACCESS_DENIED));
     }
 
-    // Check PROV availability
+    // 检查 PROV 可用性
     if (!prov_ || !prov_->is_available()) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::CONDITIONS_NOT_CORRECT,
@@ -172,8 +191,76 @@ DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& reques
                                     "DIAG-1004");
 }
 
-DiagResponse ServiceDispatcher::handle_certificate_request(const DiagRequest& request) {
-    std::cout << "[DIAG] CertificateRequest rid=0x" << std::hex << request.did_or_rid
+DiagResponse ServiceDispatcher::handle_generate_key_pair(const DiagRequest& request) {
+    std::cout << "[DIAG] GenerateKeyPair rid=0x" << std::hex << request.did_or_rid << std::endl;
+
+    // 检查安全访问
+    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::SECURITY_ACCESS_DENIED,
+                                        error_code_to_string(DiagErrorCode::SECURITY_ACCESS_DENIED));
+    }
+
+    // 检查SEC服务可用性
+    if (!sec_ || !sec_->is_available()) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::CONDITIONS_NOT_CORRECT,
+                                        error_code_to_string(DiagErrorCode::SEC_UNAVAILABLE));
+    }
+
+    // 调用SEC服务生成密钥对
+    if (!sec_->generate_key_pair()) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
+                                        error_code_to_string(DiagErrorCode::CERT_GENERATION_FAILED));
+    }
+
+    // 返回正响应
+    std::vector<uint8_t> rid_echo = {
+        static_cast<uint8_t>((request.did_or_rid >> 8) & 0xFF),
+        static_cast<uint8_t>(request.did_or_rid & 0xFF)
+    };
+    return create_positive_response(UdsService::ROUTINE_CONTROL,
+                                    request.sub_function, rid_echo);
+}
+
+DiagResponse ServiceDispatcher::handle_read_csr(const DiagRequest& request) {
+    std::cout << "[DIAG] ReadCSR rid=0x" << std::hex << request.did_or_rid << std::endl;
+
+    // 检查安全访问
+    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::SECURITY_ACCESS_DENIED,
+                                        error_code_to_string(DiagErrorCode::SECURITY_ACCESS_DENIED));
+    }
+
+    // 检查SEC服务可用性
+    if (!sec_ || !sec_->is_available()) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::CONDITIONS_NOT_CORRECT,
+                                        error_code_to_string(DiagErrorCode::SEC_UNAVAILABLE));
+    }
+
+    // 获取CSR
+    std::vector<uint8_t> csr_der;
+    if (!sec_->get_csr(csr_der)) {
+        return create_negative_response(UdsService::ROUTINE_CONTROL,
+                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
+                                        error_code_to_string(DiagErrorCode::CSR_CREATION_FAILED));
+    }
+
+    // 返回正响应（包含CSR数据）
+    std::vector<uint8_t> response_data = {
+        static_cast<uint8_t>((request.did_or_rid >> 8) & 0xFF),
+        static_cast<uint8_t>(request.did_or_rid & 0xFF)
+    };
+    response_data.insert(response_data.end(), csr_der.begin(), csr_der.end());
+    return create_positive_response(UdsService::ROUTINE_CONTROL,
+                                    request.sub_function, response_data);
+}
+
+DiagResponse ServiceDispatcher::handle_inject_certificate(const DiagRequest& request) {
+    std::cout << "[DIAG] InjectCertificate rid=0x" << std::hex << request.did_or_rid
               << " payload_size=" << std::dec << request.payload.size() << std::endl;
 
     // 检查安全访问
@@ -190,31 +277,15 @@ DiagResponse ServiceDispatcher::handle_certificate_request(const DiagRequest& re
                                         error_code_to_string(DiagErrorCode::SEC_UNAVAILABLE));
     }
 
-    // 执行证书申请流程
-    // 1. 生成密钥对
-    if (!sec_->generate_key_pair()) {
+    // 从请求中提取证书数据
+    if (request.payload.empty()) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
-                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
-                                        error_code_to_string(DiagErrorCode::CERT_GENERATION_FAILED));
+                                        Nrc::INCORRECT_MESSAGE_LENGTH,
+                                        error_code_to_string(DiagErrorCode::INVALID_REQUEST_FORMAT));
     }
 
-    // 2. 获取CSR
-    std::vector<uint8_t> csr_der;
-    if (!sec_->get_csr(csr_der)) {
-        return create_negative_response(UdsService::ROUTINE_CONTROL,
-                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
-                                        error_code_to_string(DiagErrorCode::CSR_CREATION_FAILED));
-    }
-
-    // 3. 提交CSR
-    if (!sec_->submit_csr()) {
-        return create_negative_response(UdsService::ROUTINE_CONTROL,
-                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
-                                        error_code_to_string(DiagErrorCode::CERT_SUBMISSION_FAILED));
-    }
-
-    // 4. 注入证书（SEC服务内部处理证书获取和注入）
-    if (!sec_->inject_certificate({})) {
+    // 注入证书
+    if (!sec_->inject_certificate(request.payload)) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::GENERAL_PROGRAMMING_FAILURE,
                                         error_code_to_string(DiagErrorCode::CERT_INJECTION_FAILED));

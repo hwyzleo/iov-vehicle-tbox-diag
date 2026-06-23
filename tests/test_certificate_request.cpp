@@ -28,10 +28,10 @@ protected:
 };
 
 TEST_F(CertificateRequestTest, SuccessfulCertificateRequest) {
-    // 先切换到扩展会话
+    // 先切换到 Programming Session（证书相关操作需要 Programming Session）
     DiagRequest session_req;
     session_req.service_id = UdsService::DIAGNOSTIC_SESSION_CONTROL;
-    session_req.sub_function = UdsSession::EXTENDED;
+    session_req.sub_function = UdsSession::PROGRAMMING;
     session_req.source_address = 0x0010;
     session_req.transport = TransportType::DOIP;
     diag_service_->process_request(session_req);
@@ -50,11 +50,11 @@ TEST_F(CertificateRequestTest, SuccessfulCertificateRequest) {
     key_request.source_address = 0x0010;
     diag_service_->process_request(key_request);
 
-    // 发送证书申请请求
+    // 发送 GenerateKeyPair 请求
     DiagRequest request;
     request.service_id = UdsService::ROUTINE_CONTROL;
     request.sub_function = 0x01;
-    request.did_or_rid = Rid::CERTIFICATE_REQUEST;
+    request.did_or_rid = Rid::GENERATE_KEY_PAIR;
     request.payload = {};
     request.source_address = 0x0010;
 
@@ -65,19 +65,19 @@ TEST_F(CertificateRequestTest, SuccessfulCertificateRequest) {
 }
 
 TEST_F(CertificateRequestTest, CertificateRequestWithoutSecurity) {
-    // 先切换到扩展会话
+    // 先切换到 Programming Session（证书相关操作需要 Programming Session）
     DiagRequest session_req;
     session_req.service_id = UdsService::DIAGNOSTIC_SESSION_CONTROL;
-    session_req.sub_function = UdsSession::EXTENDED;
+    session_req.sub_function = UdsSession::PROGRAMMING;
     session_req.source_address = 0x0010;
     session_req.transport = TransportType::DOIP;
     diag_service_->process_request(session_req);
 
-    // 不解锁安全访问，直接发送证书申请请求
+    // 不解锁安全访问，直接发送 GenerateKeyPair 请求
     DiagRequest request;
     request.service_id = UdsService::ROUTINE_CONTROL;
     request.sub_function = 0x01;
-    request.did_or_rid = Rid::CERTIFICATE_REQUEST;
+    request.did_or_rid = Rid::GENERATE_KEY_PAIR;
     request.payload = {};
     request.source_address = 0x0010;
 
@@ -87,10 +87,10 @@ TEST_F(CertificateRequestTest, CertificateRequestWithoutSecurity) {
 }
 
 TEST_F(CertificateRequestTest, CertificateRequestWithSecurity) {
-    // 先切换到扩展会话
+    // 先切换到 Programming Session（证书相关操作需要 Programming Session）
     DiagRequest session_req;
     session_req.service_id = UdsService::DIAGNOSTIC_SESSION_CONTROL;
-    session_req.sub_function = UdsSession::EXTENDED;
+    session_req.sub_function = UdsSession::PROGRAMMING;
     session_req.source_address = 0x0010;
     session_req.transport = TransportType::DOIP;
     diag_service_->process_request(session_req);
@@ -114,11 +114,11 @@ TEST_F(CertificateRequestTest, CertificateRequestWithSecurity) {
     auto key_response = diag_service_->process_request(key_request);
     EXPECT_TRUE(key_response.positive);
 
-    // 现在可以发送证书申请请求
+    // 现在可以发送 GenerateKeyPair 请求
     DiagRequest cert_request;
     cert_request.service_id = UdsService::ROUTINE_CONTROL;
     cert_request.sub_function = 0x01;
-    cert_request.did_or_rid = Rid::CERTIFICATE_REQUEST;
+    cert_request.did_or_rid = Rid::GENERATE_KEY_PAIR;
     cert_request.payload = {};
     cert_request.source_address = 0x0010;
 
