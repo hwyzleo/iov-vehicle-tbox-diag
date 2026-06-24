@@ -74,6 +74,7 @@ int main() {
     sec_config.hsm_type = "software";
     sec_config.hsm_config_path = "/etc/tbox/hsm_config.yaml";
     sec_config.state_file_path = state_file;
+    sec_config.ca_cert_path = "/Users/hwyz_leo/Docker/step/certs/intermediate_ca.crt";
     sec_config.cloud_config.oapi_endpoint = "https://oapi.example.com";
     sec_config.cloud_config.timeout_ms = 30000;
     sec_config.cloud_config.retry_count = 3;

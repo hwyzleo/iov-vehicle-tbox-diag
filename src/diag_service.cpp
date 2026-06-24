@@ -109,8 +109,8 @@ void DiagService::process_pending_requests() {
         return;
     }
 
-    std::cout << "[DIAG] RX SID=0x" << std::hex << static_cast<int>(request.service_id)
-              << std::dec << std::endl;
+    // std::cout << "[DIAG] RX SID=0x" << std::hex << static_cast<int>(request.service_id)
+    //           << std::dec << std::endl;
 
     DiagResponse response = dispatcher_->dispatch(request);
 
@@ -119,9 +119,9 @@ void DiagService::process_pending_requests() {
         std::cerr << "[DIAG] Failed to send response" << std::endl;
     }
 
-    std::cout << "[DIAG] TX " << (response.positive ? "POS" : "NEG")
-              << " SID=0x" << std::hex << static_cast<int>(response.service_id)
-              << std::dec << std::endl;
+    // std::cout << "[DIAG] TX " << (response.positive ? "POS" : "NEG")
+    //           << " SID=0x" << std::hex << static_cast<int>(response.service_id)
+    //           << std::dec << std::endl;
 }
 
 void DiagService::shutdown() {
