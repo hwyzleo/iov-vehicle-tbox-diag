@@ -41,8 +41,15 @@ public:
         return available_;
     }
 
+    bool reconnect() override {
+        if (fail_reconnect_) return false;
+        available_ = true;
+        return true;
+    }
+
     void set_available(bool available) { available_ = available; }
     void set_fail_write(bool fail) { fail_write_ = fail; }
+    void set_fail_reconnect(bool fail) { fail_reconnect_ = fail; }
     void set_read_valid(bool valid) { read_valid_ = valid; }
     void set_stored_vin(const std::string& vin) { stored_vin_ = vin; }
     void set_bind_state(const std::string& state) { bind_state_ = state; }
@@ -51,6 +58,7 @@ public:
 private:
     bool available_ = true;
     bool fail_write_ = false;
+    bool fail_reconnect_ = false;
     bool read_valid_ = true;
     std::string stored_vin_;
     std::vector<uint8_t> stored_payload_;

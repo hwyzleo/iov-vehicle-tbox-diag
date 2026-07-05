@@ -10,6 +10,7 @@
 #include "transport_adapter.h"
 #include "prov_interface.h"
 #include "sec_interface.h"
+#include "config.h"
 #include <memory>
 #include <vector>
 #include <mutex>
@@ -19,6 +20,7 @@ namespace diag {
 
 struct DiagServiceConfig {
     std::string config_file_path;
+    std::shared_ptr<const hwyz::config::ImmutableConfigView> config_snapshot;
 };
 
 class DiagService {
@@ -56,6 +58,8 @@ protected:
 
     virtual DiagErrorCode initialize_submodules();
     virtual DiagErrorCode register_default_routes();
+    virtual DiagErrorCode load_config();
+    virtual DiagErrorCode apply_config();
 };
 
 } // namespace diag

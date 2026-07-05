@@ -105,7 +105,9 @@ DiagResponse ServiceDispatcher::handle_security_access(const DiagRequest& reques
                                         request.sub_function, seed);
     } else {
         // sendKey: pass the actual sendKey level (even), not the normalized requestSeed level (odd)
-        auto result = security_access_->send_key(raw_level, request.payload);
+        // ISO 14229: sendKey level = requestSeed level + 1
+        uint8_t send_key_level = raw_level + 1;
+        auto result = security_access_->send_key(send_key_level, request.payload);
         if (result != DiagErrorCode::SUCCESS) {
             uint8_t nrc = Nrc::INVALID_KEY;
             if (result == DiagErrorCode::SEC_UNAVAILABLE) {

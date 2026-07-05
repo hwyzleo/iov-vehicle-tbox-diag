@@ -39,6 +39,14 @@ enum class DiagErrorCode : uint32_t {
     // DIAG-1010: Certificate injection failed
     CERT_INJECTION_FAILED = 1010,
 
+    // DIAG-1011: Configuration loading failed
+    CONFIG_LOAD_FAILED = 1011,
+
+    // IPC communication errors
+    PROV_IPC_CONNECTION_FAILED = 9994,
+    PROV_IPC_TIMEOUT = 9993,
+    PROV_IPC_DISCONNECTED = 9992,
+
     // Internal error codes
     INTERNAL_ERROR = 9999,
     NOT_INITIALIZED = 9998,

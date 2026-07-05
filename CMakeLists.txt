@@ -37,6 +37,10 @@ add_subdirectory(${PROV_SOURCE_DIR} ${CMAKE_BINARY_DIR}/prov EXCLUDE_FROM_ALL)
 set(SEC_SOURCE_DIR ${PROJECT_SOURCE_DIR}/../iov-vehicle-tbox-sec)
 add_subdirectory(${SEC_SOURCE_DIR} ${CMAKE_BINARY_DIR}/sec EXCLUDE_FROM_ALL)
 
+# Framework library (sibling directory)
+set(FRAMEWORK_SOURCE_DIR ${PROJECT_SOURCE_DIR}/../iov-vehicle-tbox-framework)
+add_subdirectory(${FRAMEWORK_SOURCE_DIR} ${CMAKE_BINARY_DIR}/framework EXCLUDE_FROM_ALL)
+
 set(LIB_SOURCES
     src/diag_service.cpp
     src/session_manager.cpp
@@ -54,7 +58,7 @@ set(LIB_SOURCES
 # 创建diag_service库
 add_library(diag_service_lib STATIC ${LIB_SOURCES})
 target_include_directories(diag_service_lib PUBLIC ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(diag_service_lib PUBLIC TboxProvLib TboxSecLib yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json)
+target_link_libraries(diag_service_lib PUBLIC ProvClient TboxSecLib yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json hwyz)
 
 # 添加RealSecAdapter源文件
 add_library(real_sec_adapter
@@ -64,10 +68,22 @@ add_library(real_sec_adapter
 target_include_directories(real_sec_adapter PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(real_sec_adapter
     TboxSecLib
+    hwyz
+)
+
+# 添加SecIpcAdapter源文件
+add_library(sec_ipc_adapter
+    src/sec_ipc_adapter.cpp
+)
+
+target_include_directories(sec_ipc_adapter PUBLIC ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(sec_ipc_adapter
+    SecClient
+    hwyz
 )
 
 add_executable(TboxDiagService src/main.cpp)
-target_link_libraries(TboxDiagService PRIVATE diag_service_lib real_sec_adapter)
+target_link_libraries(TboxDiagService PRIVATE diag_service_lib real_sec_adapter hwyz)
 
 enable_testing()
 add_executable(TboxDiagTests
@@ -112,3 +128,7 @@ target_link_libraries(test_certificate_request
 # 添加测试到CTest
 add_test(NAME RealSecAdapterTest COMMAND test_real_sec_adapter)
 add_test(NAME CertificateRequestTest COMMAND test_certificate_request)
+
+# DIAG CLI 工具
+add_executable(diag_cli src/diag_cli.cpp)
+target_link_libraries(diag_cli PRIVATE diag_service_lib sec_ipc_adapter hwyz)

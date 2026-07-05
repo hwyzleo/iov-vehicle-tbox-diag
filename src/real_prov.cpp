@@ -5,18 +5,18 @@
 namespace tbox {
 namespace diag {
 
-RealProvAdapter::RealProvAdapter(std::shared_ptr<prov::ProvService> service)
-    : service_(std::move(service)) {}
+RealProvAdapter::RealProvAdapter(std::shared_ptr<prov::ProvClient> client)
+    : client_(std::move(client)) {}
 
 DiagErrorCode RealProvAdapter::write_vin(const std::string& vin, const std::vector<uint8_t>& payload) {
     if (!is_available()) {
-        std::cerr << "[REAL-PROV] Service not available" << std::endl;
-        return DiagErrorCode::PROV_UNAVAILABLE;
+        std::cerr << "[REAL-PROV] IPC not connected" << std::endl;
+        return DiagErrorCode::PROV_IPC_DISCONNECTED;
     }
 
     std::cout << "[REAL-PROV] write_vin: " << vin << std::endl;
 
-    auto result = service_->write_vin(vin);
+    auto result = client_->write_vin(vin);
     if (result != prov::ErrorCode::SUCCESS) {
         std::cerr << "[REAL-PROV] write_vin failed: "
                   << prov::error_code_to_string(result) << std::endl;
@@ -25,7 +25,7 @@ DiagErrorCode RealProvAdapter::write_vin(const std::string& vin, const std::vect
 
     if (!payload.empty()) {
         std::cout << "[REAL-PROV] write_vehicle_config, size: " << payload.size() << std::endl;
-        auto config_result = service_->write_vehicle_config(payload);
+        auto config_result = client_->write_vehicle_config(payload);
         if (config_result != prov::ErrorCode::SUCCESS) {
             std::cerr << "[REAL-PROV] write_vehicle_config failed: "
                       << prov::error_code_to_string(config_result) << std::endl;
@@ -40,13 +40,13 @@ VinReadResult RealProvAdapter::read_vin() {
     VinReadResult result;
 
     if (!is_available()) {
-        std::cerr << "[REAL-PROV] Service not available for read" << std::endl;
+        std::cerr << "[REAL-PROV] IPC not connected for read" << std::endl;
         result.valid = false;
         return result;
     }
 
-    result.vin = service_->read_vin();
-    auto state = service_->get_provision_state();
+    result.vin = client_->read_vin();
+    auto state = client_->get_provision_state();
 
     switch (state) {
         case prov::ProvisionState::NONE:
@@ -66,7 +66,7 @@ VinReadResult RealProvAdapter::read_vin() {
             break;
     }
 
-    result.valid = true;  // 初始状态无VIN是正常的
+    result.valid = true;
     std::cout << "[REAL-PROV] read_vin: " << result.vin
               << ", state: " << result.bind_state << std::endl;
 
@@ -74,7 +74,15 @@ VinReadResult RealProvAdapter::read_vin() {
 }
 
 bool RealProvAdapter::is_available() const {
-    return service_ && service_->is_initialized();
+    return client_ && client_->is_connected();
+}
+
+bool RealProvAdapter::reconnect() {
+    if (!client_) {
+        return false;
+    }
+    client_->disconnect();
+    return client_->connect();
 }
 
 } // namespace diag

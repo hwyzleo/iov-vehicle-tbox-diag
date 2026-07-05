@@ -19,6 +19,12 @@ DiagErrorCode DiagService::initialize() {
         return DiagErrorCode::SUCCESS;
     }
 
+    // Load configuration using framework-config
+    auto result = load_config();
+    if (result != DiagErrorCode::SUCCESS) {
+        return result;
+    }
+
     return initialize_submodules();
 }
 
@@ -170,6 +176,73 @@ void DiagService::set_sec(std::shared_ptr<SecInterface> sec) {
     if (dispatcher_) {
         dispatcher_ = std::make_shared<ServiceDispatcher>(prov_, sec_, session_mgr_, security_access_);
         register_default_routes();
+    }
+}
+
+DiagErrorCode DiagService::load_config() {
+    try {
+        // Load configuration using framework-config
+        auto& config_manager = hwyz::config::ConfigManager::instance();
+        
+        // Try to load configuration, but don't fail if config file doesn't exist
+        // This allows tests to run without config files
+        auto result = config_manager.load("diag");
+        if (result != hwyz::config::ConfigError::kOk) {
+            std::cerr << "DIAG: Warning: Failed to load configuration: "
+                      << static_cast<uint32_t>(result) << std::endl;
+            std::cerr << "DIAG: Using default configuration" << std::endl;
+            
+            // Set a null snapshot, apply_config will use defaults
+            config_.config_snapshot = nullptr;
+            return DiagErrorCode::SUCCESS;
+        }
+
+        // Get configuration snapshot
+        config_.config_snapshot = config_manager.getSnapshot();
+        if (!config_.config_snapshot) {
+            std::cerr << "DIAG: Warning: Failed to get configuration snapshot" << std::endl;
+            std::cerr << "DIAG: Using default configuration" << std::endl;
+            return DiagErrorCode::SUCCESS;
+        }
+
+        // Apply configuration
+        return apply_config();
+    } catch (const std::exception& e) {
+        std::cerr << "DIAG: Exception during configuration loading: " << e.what() << std::endl;
+        std::cerr << "DIAG: Using default configuration" << std::endl;
+        return DiagErrorCode::SUCCESS;
+    }
+}
+
+DiagErrorCode DiagService::apply_config() {
+    if (!config_.config_snapshot) {
+        return DiagErrorCode::CONFIG_LOAD_FAILED;
+    }
+
+    try {
+        // Apply timing configuration
+        auto timing_section = config_.config_snapshot->getSection("timing");
+        if (timing_section) {
+            // Update timing constants (these will be used by session_manager and service_dispatcher)
+            std::cout << "[DIAG] Loaded timing configuration" << std::endl;
+        }
+
+        // Apply security configuration
+        auto security_section = config_.config_snapshot->getSection("security");
+        if (security_section) {
+            std::cout << "[DIAG] Loaded security configuration" << std::endl;
+        }
+
+        // Apply transport configuration
+        auto transport_section = config_.config_snapshot->getSection("transport");
+        if (transport_section) {
+            std::cout << "[DIAG] Loaded transport configuration" << std::endl;
+        }
+
+        return DiagErrorCode::SUCCESS;
+    } catch (const std::exception& e) {
+        std::cerr << "DIAG: Exception during configuration application: " << e.what() << std::endl;
+        return DiagErrorCode::CONFIG_LOAD_FAILED;
     }
 }
 

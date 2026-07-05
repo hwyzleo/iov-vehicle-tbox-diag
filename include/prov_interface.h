@@ -22,6 +22,7 @@ public:
     virtual DiagErrorCode write_vin(const std::string& vin, const std::vector<uint8_t>& payload) = 0;
     virtual VinReadResult read_vin() = 0;
     virtual bool is_available() const = 0;
+    virtual bool reconnect() = 0;
 };
 
 } // namespace diag

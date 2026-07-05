@@ -1,0 +1,106 @@
+# TBOX Diagnostic Service Configuration
+# iov-vehicle-tbox-diag
+
+common:
+  store:
+    root: "."
+
+# Transport layer configuration
+transport:
+  # Transport type: "doip" or "do_can"
+  type: "doip"
+  
+  # DoIP (DoIP over TCP) configuration
+  doip:
+    listen_address: "0.0.0.0"
+    port: 13400
+    local_address: 0x0001
+    accept_timeout_ms: 1000
+  
+  # DoCAN (Diagnostic over CAN) configuration
+  do_can:
+    can_interface: "can0"
+    tx_id: 0x7E0
+    rx_id: 0x7E8
+    connect_timeout_ms: 5000
+
+# Session management configuration
+timing:
+  # P2 client timeout (ms) - default 5000ms per ISO 14229
+  p2: 5000
+  
+  # P2* client timeout (ms) for response pending - default 5000ms
+  p2_star: 5000
+  
+  # S3 session timeout (ms) - default 5000ms
+  s3: 5000
+
+# Security access configuration
+security:
+  # Maximum failed attempts before lockout
+  max_attempts: 3
+  
+  # Lockout duration in milliseconds (10 seconds)
+  lockout_duration_ms: 10000
+
+# Diagnostic session configuration
+session:
+  # Default session settings
+  default:
+    enabled: true
+  
+  # Extended session settings
+  extended:
+    enabled: true
+    require_security: false
+  
+  # Programming session settings
+  programming:
+    enabled: true
+    require_security: true
+
+# UDS service routing configuration
+routing:
+  # Read Data Identifier (0x22) routes
+  read_data:
+    - did: 0xF190
+      name: "VIN"
+      downstream: "PROV"
+      requires_unlock: false
+    - did: 0xF191
+      name: "BINDING_STATE"
+      downstream: "PROV"
+      requires_unlock: false
+  
+  # Routine Control (0x31) routes
+  routine_control:
+    - rid: 0xFF00
+      name: "WRITE_VIN_ROUTINE"
+      downstream: "PROV"
+      requires_unlock: true
+    - rid: 0xFF01
+      name: "CERTIFICATE_REQUEST"
+      downstream: "SEC"
+      requires_unlock: true
+    - rid: 0xFF02
+      name: "READ_CSR"
+      downstream: "SEC"
+      requires_unlock: true
+    - rid: 0xFF03
+      name: "INJECT_CERTIFICATE"
+      downstream: "SEC"
+      requires_unlock: true
+
+# Logging configuration
+log:
+  level: "INFO"  # DEBUG, INFO, WARN, ERROR
+  enable_uds_logging: true
+  log_file: "/var/log/tbox/diag.log"
+
+# Validation settings
+validation:
+  # Validate message length per ISO 14229
+  strict_message_length: true
+  
+  # Allow only one tester at a time
+  single_tester_mode: true

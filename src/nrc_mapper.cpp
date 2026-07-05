@@ -19,13 +19,17 @@ uint8_t NrcMapper::diag_error_to_nrc(DiagErrorCode error) {
             return Nrc::GENERAL_PROGRAMMING_FAILURE;
         case DiagErrorCode::REQUEST_TIMEOUT:
             return Nrc::RESPONSE_PENDING;
+        case DiagErrorCode::PROV_IPC_CONNECTION_FAILED:
+        case DiagErrorCode::PROV_IPC_TIMEOUT:
+        case DiagErrorCode::PROV_IPC_DISCONNECTED:
+            return Nrc::CONDITIONS_NOT_CORRECT;
         default:
             return Nrc::GENERAL_REJECT;
     }
 }
 
 DiagErrorCode NrcMapper::prov_error_to_diag(uint32_t prov_error_code) {
-    // PROV error codes: 1001-1007
+    // PROV error codes: 1001-1010
     switch (prov_error_code) {
         case 1001:  // SECURITY_ACCESS_NOT_GRANTED
             return DiagErrorCode::SECURITY_ACCESS_DENIED;
@@ -36,7 +40,15 @@ DiagErrorCode NrcMapper::prov_error_to_diag(uint32_t prov_error_code) {
         case 1005:  // VIN_CONFLICT_UNAUTHORIZED
         case 1006:  // CONFIG_WRITE_FAILED
         case 1007:  // PRODUCTION_INFO_WRITE_FAILED
+        case 1008:  // SE_UID_READ_FAILED
+        case 1009:  // SE_MISSING_CONFIG_NOT_FOUND
+        case 1010:  // SE_MISSING_PRODUCTION_FAIL_CLOSED
             return DiagErrorCode::DOWNSTREAM_EXECUTION_FAILED;
+        case 9996:  // INVALID_STATE
+        case 9997:  // ECU_UID_READ_ERROR
+        case 9998:  // STORAGE_ERROR
+        case 9999:  // INTERNAL_ERROR
+            return DiagErrorCode::INTERNAL_ERROR;
         default:
             return DiagErrorCode::INTERNAL_ERROR;
     }

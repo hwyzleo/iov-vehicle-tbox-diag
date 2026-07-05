@@ -12,8 +12,9 @@
 #include "real_sec_adapter.h"
 #include "sec_service.h"
 #include "real_prov.h"
-#include "prov_service.h"
+#include "prov_client.h"
 #include "prov_to_sec_adapter.h"
+#include "config.h"
 
 using namespace tbox::diag;
 
@@ -30,9 +31,25 @@ int main() {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
+    // Load DIAG configuration using framework-config
+    auto& config_manager = hwyz::config::ConfigManager::instance();
+    auto config_result = config_manager.load("diag");
+    if (config_result != hwyz::config::ConfigError::kOk) {
+        std::cerr << "Failed to load DIAG configuration: "
+                  << static_cast<uint32_t>(config_result) << std::endl;
+        return 1;
+    }
+
+    auto config_snapshot = config_manager.getSnapshot();
+    if (!config_snapshot) {
+        std::cerr << "Failed to get configuration snapshot" << std::endl;
+        return 1;
+    }
+
+    // Read DoIP configuration from config
     DoIpConfig doip_config;
-    doip_config.listen_address = "0.0.0.0";
-    doip_config.port = 13400;
+    doip_config.listen_address = config_snapshot->getString("transport.doip.listen_address", "0.0.0.0");
+    doip_config.port = config_snapshot->getInt("transport.doip.port", 13400);
 
     auto doip = std::make_shared<DoIpAdapter>(doip_config);
     if (!doip->start_server()) {
@@ -41,22 +58,19 @@ int main() {
     }
 
     DiagServiceConfig config;
-    config.config_file_path = "/etc/tbox/diag_config.yaml";
+    config.config_snapshot = config_snapshot;
 
     auto service = std::make_unique<DiagService>(config);
 
-    // 初始化PROV服务（先于SEC，以便获取VIN和ECU UID）
-    tbox::prov::ProvServiceConfig prov_config;
-    prov_config.storage_path = "/var/tbox/prov";
-    prov_config.enable_write_protection = true;
-    auto prov_service = std::make_shared<tbox::prov::ProvService>(prov_config);
-    auto prov_init = prov_service->initialize();
-    if (prov_init != tbox::prov::ErrorCode::SUCCESS) {
-        std::cerr << "Failed to initialize PROV service: "
-                  << tbox::prov::error_code_to_string(prov_init) << std::endl;
+    // 通过 IPC 连接到 PROV 服务
+    std::string prov_socket_path = config_snapshot->getString("prov.ipc_socket_path", "/tmp/tbox-prov.sock");
+    auto prov_client = std::make_shared<tbox::prov::ProvClient>(prov_socket_path);
+    if (!prov_client->connect()) {
+        std::cerr << "Failed to connect to PROV IPC service at " << prov_socket_path << std::endl;
         return 1;
     }
-    service->set_prov(std::make_shared<RealProvAdapter>(prov_service));
+    std::cout << "Connected to PROV IPC service at " << prov_socket_path << std::endl;
+    service->set_prov(std::make_shared<RealProvAdapter>(prov_client));
 
     // 创建SEC服务所需目录
     std::filesystem::create_directories("/var/tbox");
@@ -81,7 +95,7 @@ int main() {
     sec_config.cloud_config.retry_delay_ms = 1000;
 
     auto sec_service = std::make_shared<tbox::sec::SecService>(sec_config);
-    sec_service->set_prov_service(std::make_shared<ProvToSecAdapter>(prov_service));
+    sec_service->set_prov_service(std::make_shared<ProvToSecAdapter>(prov_client));
     auto sec_init = sec_service->initialize();
     if (sec_init != tbox::sec::ErrorCode::SUCCESS) {
         std::cerr << "Failed to initialize SEC service: "

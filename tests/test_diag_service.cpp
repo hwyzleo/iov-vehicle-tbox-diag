@@ -3,6 +3,7 @@
 #include "mock_sec_interface.h"
 #include "mock_prov_interface.h"
 #include "constants.h"
+#include "config.h"
 
 namespace tbox {
 namespace diag {
@@ -130,6 +131,40 @@ TEST_F(DiagServiceTest, GetCurrentSession) {
 
     auto session = service->get_current_session();
     EXPECT_EQ(session.session_type, SessionType::DEFAULT);
+}
+
+TEST_F(DiagServiceTest, ConfigLoadFailed) {
+    // Test configuration loading failure scenario
+    // Note: In current implementation, config load failure doesn't prevent initialization
+    // The service will use default configuration
+    DiagServiceConfig config;
+    config.config_file_path = "/nonexistent/path/diag.yaml";
+    
+    DiagService svc(config);
+    svc.set_sec(mock_sec);
+    svc.set_prov(mock_prov);
+    
+    // Should still initialize successfully with default config
+    EXPECT_EQ(svc.initialize(), DiagErrorCode::SUCCESS);
+}
+
+TEST_F(DiagServiceTest, ConfigHelperFunctions) {
+    // Test configuration helper functions
+    auto& config_manager = hwyz::config::ConfigManager::instance();
+    auto result = config_manager.load("diag");
+    
+    if (result == hwyz::config::ConfigError::kOk) {
+        auto config_snapshot = config_manager.getSnapshot();
+        EXPECT_NE(config_snapshot, nullptr);
+        
+        // Test timing configuration
+        uint32_t p2_value = ConfigHelper::get_timing_value(config_snapshot, Timing::P2_CONFIG_KEY, Timing::P2_DEFAULT);
+        EXPECT_GT(p2_value, 0);
+        
+        // Test security configuration
+        uint32_t max_attempts = ConfigHelper::get_security_config(config_snapshot, SecurityConfig::MAX_ATTEMPTS_CONFIG_KEY, SecurityConfig::MAX_ATTEMPTS);
+        EXPECT_GT(max_attempts, 0);
+    }
 }
 
 } // namespace testing

@@ -32,8 +32,12 @@ public:
         return true;
     }
 
+    bool reconnect() override {
+        return true;
+    }
+
 private:
-    std::string stored_vin_;
+    std::string stored_vin_ = "1HGBH41JXMN109186";
 };
 
 } // namespace diag

@@ -4,36 +4,36 @@
 namespace tbox {
 namespace diag {
 
-ProvToSecAdapter::ProvToSecAdapter(std::shared_ptr<prov::ProvService> service)
-    : service_(std::move(service)) {}
+ProvToSecAdapter::ProvToSecAdapter(std::shared_ptr<prov::ProvClient> client)
+    : client_(std::move(client)) {}
 
 sec::ErrorCode ProvToSecAdapter::initialize() {
-    if (!service_) {
+    if (!client_) {
         return sec::ErrorCode::NOT_INITIALIZED;
     }
     return sec::ErrorCode::SUCCESS;
 }
 
 sec::ErrorCode ProvToSecAdapter::get_vehicle_info(sec::VehicleInfo& info) {
-    if (!service_ || !service_->is_initialized()) {
+    if (!client_ || !client_->is_connected()) {
         return sec::ErrorCode::NOT_INITIALIZED;
     }
 
-    auto binding = service_->read_binding();
+    auto binding = client_->read_binding();
     info.vin = binding.vin;
     info.ecu_uid = binding.ecu_uid;
     return sec::ErrorCode::SUCCESS;
 }
 
 bool ProvToSecAdapter::is_connected() const {
-    return service_ && service_->is_initialized();
+    return client_ && client_->is_connected();
 }
 
 std::string ProvToSecAdapter::get_service_status() const {
-    if (!service_) {
+    if (!client_) {
         return "NOT_INITIALIZED";
     }
-    return service_->is_initialized() ? "CONNECTED" : "NOT_INITIALIZED";
+    return client_->is_connected() ? "CONNECTED" : "DISCONNECTED";
 }
 
 } // namespace diag

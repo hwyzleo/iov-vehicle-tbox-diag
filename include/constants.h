@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include "config.h"
 
 namespace tbox {
 namespace diag {
@@ -64,9 +65,15 @@ namespace Nrc {
 
 // Timing parameters (milliseconds)
 namespace Timing {
+    // Default values (can be overridden by configuration)
     constexpr uint32_t P2_DEFAULT = 5000;     // P2 client default (5s per ISO 14229)
     constexpr uint32_t P2_STAR = 5000;       // P2* client (responsePending)
     constexpr uint32_t S3_DEFAULT = 5000;    // S3 session timeout
+    
+    // Configuration keys
+    constexpr const char* P2_CONFIG_KEY = "timing.p2";
+    constexpr const char* P2_STAR_CONFIG_KEY = "timing.p2_star";
+    constexpr const char* S3_CONFIG_KEY = "timing.s3";
 }
 
 // Transport types
@@ -79,6 +86,31 @@ enum class TransportType : uint8_t {
 namespace SecurityConfig {
     constexpr uint32_t MAX_ATTEMPTS = 3;
     constexpr uint32_t LOCKOUT_DURATION_MS = 10000;  // 10 seconds
+    
+    // Configuration keys
+    constexpr const char* MAX_ATTEMPTS_CONFIG_KEY = "security.max_attempts";
+    constexpr const char* LOCKOUT_DURATION_CONFIG_KEY = "security.lockout_duration_ms";
+}
+
+// Configuration helper functions
+namespace ConfigHelper {
+    // Get timing value from config with fallback to default
+    inline uint32_t get_timing_value(std::shared_ptr<const hwyz::config::ImmutableConfigView> config,
+                                     const char* key, uint32_t default_value) {
+        if (config && config->has(key)) {
+            return static_cast<uint32_t>(config->getInt(key, static_cast<int>(default_value)));
+        }
+        return default_value;
+    }
+    
+    // Get security config value from config with fallback to default
+    inline uint32_t get_security_config(std::shared_ptr<const hwyz::config::ImmutableConfigView> config,
+                                        const char* key, uint32_t default_value) {
+        if (config && config->has(key)) {
+            return static_cast<uint32_t>(config->getInt(key, static_cast<int>(default_value)));
+        }
+        return default_value;
+    }
 }
 
 } // namespace diag
