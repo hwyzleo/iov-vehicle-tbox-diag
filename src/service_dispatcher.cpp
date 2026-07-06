@@ -82,17 +82,14 @@ DiagResponse ServiceDispatcher::handle_tester_present(const DiagRequest& request
 }
 
 DiagResponse ServiceDispatcher::handle_security_access(const DiagRequest& request) {
-    bool is_request_seed = (request.sub_function & 0x80) == 0;
-    // ISO 14229: requestSeed uses odd level, sendKey uses even level (seed level + 1)
-    // Normalize to the seed level (odd) for state lookup
     uint8_t raw_level = request.sub_function & 0x7F;
-    uint8_t level = is_request_seed ? raw_level : (raw_level - 1);
+    bool is_request_seed = (raw_level & 0x01) != 0;
 
     if (is_request_seed) {
         std::vector<uint8_t> seed;
         std::cout << "[DIAG] request_seed sub_function=0x" << std::hex
                   << (int)request.sub_function << std::endl;
-        auto result = security_access_->request_seed(level, seed);
+        auto result = security_access_->request_seed(raw_level, seed);
         if (result != DiagErrorCode::SUCCESS) {
             uint8_t nrc = Nrc::SECURITY_ACCESS_DENIED;
             if (result == DiagErrorCode::SEC_UNAVAILABLE) {
@@ -104,10 +101,7 @@ DiagResponse ServiceDispatcher::handle_security_access(const DiagRequest& reques
         return create_positive_response(UdsService::SECURITY_ACCESS,
                                         request.sub_function, seed);
     } else {
-        // sendKey: pass the actual sendKey level (even), not the normalized requestSeed level (odd)
-        // ISO 14229: sendKey level = requestSeed level + 1
-        uint8_t send_key_level = raw_level + 1;
-        auto result = security_access_->send_key(send_key_level, request.payload);
+        auto result = security_access_->send_key(raw_level, request.payload);
         if (result != DiagErrorCode::SUCCESS) {
             uint8_t nrc = Nrc::INVALID_KEY;
             if (result == DiagErrorCode::SEC_UNAVAILABLE) {
@@ -313,16 +307,23 @@ DiagResponse ServiceDispatcher::handle_inject_certificate(const DiagRequest& req
 
 DiagResponse ServiceDispatcher::handle_read_data_by_identifier(const DiagRequest& request) {
     uint16_t did = request.did_or_rid;
+    std::cout << "[DIAG] ReadDID: did=0x" << std::hex << did
+              << " source=0x" << request.source_address
+              << " transport=" << static_cast<int>(request.transport)
+              << std::dec << std::endl;
 
     if (did == Did::VIN || did == Did::BINDING_STATE) {
         // Check PROV availability
         if (!prov_ || !prov_->is_available()) {
+            std::cout << "[DIAG] ReadDID: PROV unavailable" << std::endl;
             return create_negative_response(UdsService::READ_DATA_BY_IDENTIFIER,
                                             Nrc::CONDITIONS_NOT_CORRECT,
                                             error_code_to_string(DiagErrorCode::PROV_UNAVAILABLE));
         }
 
+        std::cout << "[DIAG] ReadDID: calling prov_->read_vin()..." << std::endl;
         auto read_result = prov_->read_vin();
+        std::cout << "[DIAG] ReadDID: read_vin returned valid=" << read_result.valid << std::endl;
         if (!read_result.valid) {
             return create_negative_response(UdsService::READ_DATA_BY_IDENTIFIER,
                                             Nrc::CONDITIONS_NOT_CORRECT,
@@ -340,9 +341,11 @@ DiagResponse ServiceDispatcher::handle_read_data_by_identifier(const DiagRequest
             data.insert(data.end(), read_result.bind_state.begin(), read_result.bind_state.end());
         }
 
+        std::cout << "[DIAG] ReadDID: positive response size=" << data.size() << std::endl;
         return create_positive_response(UdsService::READ_DATA_BY_IDENTIFIER, 0, data);
     }
 
+    std::cout << "[DIAG] ReadDID: did out of range -> NRC 0x31" << std::endl;
     return create_negative_response(UdsService::READ_DATA_BY_IDENTIFIER,
                                     Nrc::REQUEST_OUT_OF_RANGE,
                                     "DIAG-1004");

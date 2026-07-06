@@ -302,7 +302,7 @@ int main(int argc, char* argv[]) {
         // Step 4: Send key
         DiagRequest key_req;
         key_req.service_id = UdsService::SECURITY_ACCESS;
-        key_req.sub_function = 0x27 | 0x80;  // Send key (set MSB)
+        key_req.sub_function = 0x28;  // Send key (requestSeed level + 1)
         key_req.payload = key;
         key_req.source_address = 0x0E80;
         key_req.transport = TransportType::DOIP;

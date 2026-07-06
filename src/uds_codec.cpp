@@ -70,7 +70,11 @@ std::vector<uint8_t> UdsCodec::encode(const DiagResponse& response) {
 
     if (response.positive) {
         raw.push_back(response.service_id);
-        raw.push_back(response.sub_function);
+        // ReadDataByIdentifier (0x22) positive response has no sub_function byte:
+        // ISO 14229: [0x62] [DID(2)] [data...]
+        if (response.service_id != static_cast<uint8_t>(UdsService::READ_DATA_BY_IDENTIFIER) + 0x40) {
+            raw.push_back(response.sub_function);
+        }
         raw.insert(raw.end(), response.payload.begin(), response.payload.end());
     } else {
         raw.push_back(0x7F);

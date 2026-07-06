@@ -1,6 +1,7 @@
 #include "real_prov.h"
 #include "nrc_mapper.h"
 #include <iostream>
+#include <chrono>
 
 namespace tbox {
 namespace diag {
@@ -45,8 +46,18 @@ VinReadResult RealProvAdapter::read_vin() {
         return result;
     }
 
+    std::cout << "[REAL-PROV] read_vin: calling IPC read_vin()..." << std::endl;
+    auto t0 = std::chrono::steady_clock::now();
     result.vin = client_->read_vin();
+    auto t1 = std::chrono::steady_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cout << "[REAL-PROV] read_vin: IPC returned in " << ms << "ms, vin=" << result.vin << std::endl;
+
+    auto t2 = std::chrono::steady_clock::now();
     auto state = client_->get_provision_state();
+    auto t3 = std::chrono::steady_clock::now();
+    auto ms2 = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
+    std::cout << "[REAL-PROV] get_provision_state returned in " << ms2 << "ms" << std::endl;
 
     switch (state) {
         case prov::ProvisionState::NONE:
