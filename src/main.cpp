@@ -15,6 +15,9 @@
 #include "prov_client.h"
 #include "prov_to_sec_adapter.h"
 #include "config.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
+#include "diag_context.h"
 
 using namespace tbox::diag;
 
@@ -26,7 +29,10 @@ static void signal_handler(int sig) {
 }
 
 int main() {
-    std::cout << "TBOX DIAG Service Starting..." << std::endl;
+    tbox::diag::DiagLogAdapter::transport().info(
+        "diag.service.starting",
+        "TBOX DIAG Service Starting"
+    );
 
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
@@ -45,6 +51,42 @@ int main() {
         std::cerr << "Failed to get configuration snapshot" << std::endl;
         return 1;
     }
+
+    // 读取日志配置
+    tbox::fw::log::LogConfig log_config;
+    log_config.strict = true;  // fail-closed
+    
+    // 从 common.log.* 读取基础配置
+    std::string log_level_str = config_snapshot->getString("common.log.level", "info");
+    if (log_level_str == "trace") log_config.level = tbox::fw::log::LogLevel::kTrace;
+    else if (log_level_str == "debug") log_config.level = tbox::fw::log::LogLevel::kDebug;
+    else if (log_level_str == "info") log_config.level = tbox::fw::log::LogLevel::kInfo;
+    else if (log_level_str == "warn") log_config.level = tbox::fw::log::LogLevel::kWarn;
+    else if (log_level_str == "error") log_config.level = tbox::fw::log::LogLevel::kError;
+    
+    log_config.async_config.enabled = config_snapshot->getBool("common.log.async.enabled", true);
+    log_config.async_config.queue_size = config_snapshot->getInt("common.log.async.queue_size", 4096);
+    log_config.async_config.flush_interval_ms = config_snapshot->getInt("common.log.async.flush_interval_ms", 1000);
+    
+    // 从 diag.log.* 读取 DIAG 特定配置
+    std::string diag_log_level = config_snapshot->getString("diag.log.level", "");
+    if (!diag_log_level.empty()) {
+        if (diag_log_level == "trace") log_config.module_levels["uds_router"] = tbox::fw::log::LogLevel::kTrace;
+        else if (diag_log_level == "debug") log_config.module_levels["uds_router"] = tbox::fw::log::LogLevel::kDebug;
+    }
+    
+    // 初始化 Logger
+    auto log_result = tbox::diag::DiagLogAdapter::init("diag", log_config);
+    if (log_result.error != tbox::fw::log::LogError::kOk) {
+        std::cerr << "FATAL: Logger init failed: " << log_result.error_message << std::endl;
+        return 1;
+    }
+    
+    // 记录初始化成功
+    tbox::diag::DiagLogAdapter::transport().info(
+        tbox::diag::events::TRANSPORT_CONNECTED,
+        "DIAG Logger initialized successfully"
+    );
 
     // Read DoIP configuration from config
     DoIpConfig doip_config;
@@ -112,7 +154,10 @@ int main() {
         return 1;
     }
 
-    std::cout << "TBOX DIAG Service initialized successfully" << std::endl;
+    tbox::diag::DiagLogAdapter::transport().info(
+        "diag.service.initialized",
+        "TBOX DIAG Service initialized successfully"
+    );
     std::cout << "DIAG service running on DoIP port " << doip_config.port
               << " (Ctrl+C to stop)" << std::endl;
 
