@@ -1,4 +1,6 @@
 #include "session_manager.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
 #include <iostream>
 
 namespace tbox {
@@ -33,6 +35,10 @@ DiagErrorCode SessionManager::switch_session(uint8_t session_type, uint16_t sour
         return DiagErrorCode::INVALID_REQUEST_FORMAT;
     }
 
+    // 记录会话切换
+    std::string previous_session = session_to_string(session_.session_type);
+    std::string target_session = session_to_string(static_cast<SessionType>(session_type));
+    
     session_.source_address = source_address;
     session_.session_type = static_cast<SessionType>(session_type);
     session_.state = SessionState::ACTIVE;
@@ -44,6 +50,18 @@ DiagErrorCode SessionManager::switch_session(uint8_t session_type, uint16_t sour
     if (session_type == UdsSession::DEFAULT) {
         session_.security_unlocked = false;
     }
+
+    // 记录会话切换日志
+    tbox::diag::DiagLogAdapter::session().info(
+        tbox::diag::events::SESSION_CHANGED,
+        "Diagnostic session changed",
+        {
+            tbox::fw::log::Field(tbox::diag::events::fields::PREVIOUS_SESSION, 
+                tbox::fw::log::FieldValue::makeString(previous_session)),
+            tbox::fw::log::Field(tbox::diag::events::fields::TARGET_SESSION, 
+                tbox::fw::log::FieldValue::makeString(target_session))
+        }
+    );
 
     return DiagErrorCode::SUCCESS;
 }
@@ -99,11 +117,24 @@ bool SessionManager::check_s3_timeout() {
         now - session_.last_tester_present_at).count();
 
     if (elapsed > Timing::S3_DEFAULT) {
-        std::cout << "[SESSION] S3 timeout! elapsed=" << elapsed << "ms > " << Timing::S3_DEFAULT
-                  << "ms, resetting to DEFAULT" << std::endl;
+        std::string previous_session = session_to_string(session_.session_type);
+        
         session_.session_type = SessionType::DEFAULT;
         session_.state = SessionState::ACTIVE;
         session_.security_unlocked = false;
+        
+        // 记录 S3 超时
+        tbox::diag::DiagLogAdapter::session().info(
+            tbox::diag::events::SESSION_TIMED_OUT,
+            "S3 timeout, falling back to default session",
+            {
+                tbox::fw::log::Field(tbox::diag::events::fields::PREVIOUS_SESSION, 
+                    tbox::fw::log::FieldValue::makeString(previous_session)),
+                tbox::fw::log::Field(tbox::diag::events::fields::S3_MS, 
+                    tbox::fw::log::FieldValue::makeInt(Timing::S3_DEFAULT))
+            }
+        );
+        
         return true;  // Timed out
     }
 
