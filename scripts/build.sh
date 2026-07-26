@@ -1,14 +1,51 @@
 #!/bin/bash
+#
+# iov-vehicle-tbox-diag 构建脚本
+#
+# 用法: ./scripts/build.sh [选项]
+#
+# 选项:
+#   --clean      清理构建目录后重新构建
+#   --no-test    跳过测试步骤
+#   --release    Release 模式构建（默认 Debug）
+#   --help       显示帮助信息
+#
 
-# TBOX DIAG Service Build Script
-
-set -e
+set -e  # 遇到错误立即退出
 
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# 项目根目录
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="${PROJECT_ROOT}/build"
+
+# 默认选项
+CLEAN_BUILD=false
+RUN_TESTS=true
+BUILD_TYPE="Release"
+
+# 显示帮助信息
+show_help() {
+    echo "用法: $0 [选项]"
+    echo ""
+    echo "选项:"
+    echo "  --clean      清理构建目录后重新构建"
+    echo "  --no-test    跳过测试步骤"
+    echo "  --release    Release 模式构建（默认 Debug）"
+    echo "  --help       显示帮助信息"
+    echo ""
+    echo "示例:"
+    echo "  $0                  # 完整构建（Release + 测试）"
+    echo "  $0 --no-test        # 仅构建，跳过测试"
+    echo "  $0 --clean          # 清理后重新构建"
+    echo "  $0 --release        # Release 模式构建"
+    echo "  $0 --clean --no-test  # 清理构建，跳过测试"
+}
 
 # 打印带颜色的消息
 print_info() {
@@ -23,9 +60,13 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
 # 检查依赖
 check_dependencies() {
-    print_info "Checking dependencies..."
+    print_info "检查构建依赖..."
 
     # 检查CMake
     if ! command -v cmake &> /dev/null; then
@@ -39,109 +80,185 @@ check_dependencies() {
         exit 1
     fi
 
-    print_info "All dependencies are available"
+    print_success "基本构建工具已就绪"
 }
 
 # 安装依赖
 install_dependencies() {
-    print_info "Installing dependencies with Conan..."
+    print_info "安装 Conan 依赖..."
 
-    # 创建构建目录
-    mkdir -p build
-    cd build
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
 
-    # 安装依赖
     conan install .. --output-folder=. --build=missing
 
-    cd ..
+    cd "$PROJECT_ROOT"
+    print_success "依赖安装完成"
 }
 
-# 构建项目
+# 清理构建目录
+clean_build() {
+    if [ -d "$BUILD_DIR" ]; then
+        print_info "清理构建目录: ${BUILD_DIR}"
+        rm -rf "$BUILD_DIR"
+        print_success "构建目录已清理"
+    fi
+}
+
+# 配置项目
+configure_project() {
+    print_info "配置 CMake 项目..."
+    print_info "  构建类型: ${BUILD_TYPE}"
+
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+
+    cmake .. \
+        -DCMAKE_TOOLCHAIN_FILE=${BUILD_DIR}/conan_toolchain.cmake \
+        -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+
+    if [ $? -ne 0 ]; then
+        print_error "CMake 配置失败"
+        return 1
+    fi
+
+    print_success "CMake 配置完成"
+    return 0
+}
+
+# 编译项目
 build_project() {
-    print_info "Building project..."
+    print_info "编译项目..."
 
-    cd build
+    cd "$BUILD_DIR"
 
-    # 配置CMake
-    cmake .. -DCMAKE_BUILD_TYPE=Release
+    # 获取 CPU 核心数
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        local cores=$(sysctl -n hw.ncpu)
+    else
+        local cores=$(nproc)
+    fi
 
-    # 构建
-    cmake --build . --config Release
+    cmake --build . --config ${BUILD_TYPE} -j$cores
 
-    cd ..
+    if [ $? -ne 0 ]; then
+        print_error "编译失败"
+        return 1
+    fi
+
+    print_success "编译完成"
+    return 0
 }
 
 # 运行测试
 run_tests() {
-    print_info "Running tests..."
+    if [ "$RUN_TESTS" = false ]; then
+        print_warn "跳过测试步骤"
+        return 0
+    fi
 
-    cd build
+    print_info "运行单元测试..."
 
-    # 运行测试
-    ctest --output-on-failure
+    cd "$BUILD_DIR"
 
-    cd ..
+    # 排除兄弟项目 (prov/sec) 的集成测试，它们依赖外部服务
+    ctest --output-on-failure -E "TboxProvTests|TboxSecTests"
+
+    if [ $? -ne 0 ]; then
+        print_error "测试失败"
+        return 1
+    fi
+
+    print_success "所有测试通过"
+    return 0
 }
 
-# 清理构建
-clean_build() {
-    print_info "Cleaning build directory..."
-
-    rm -rf build/*
+# 显示构建摘要
+show_summary() {
+    echo ""
+    echo "=========================================="
+    echo "构建摘要"
+    echo "=========================================="
+    echo "项目根目录: ${PROJECT_ROOT}"
+    echo "构建目录:   ${BUILD_DIR}"
+    echo "构建类型:   ${BUILD_TYPE}"
+    echo "=========================================="
 }
 
-# 显示帮助
-show_help() {
-    echo "TBOX DIAG Service Build Script"
-    echo ""
-    echo "Usage: $0 [OPTION]"
-    echo ""
-    echo "Options:"
-    echo "  build     Build the project"
-    echo "  test      Build and run tests"
-    echo "  clean     Clean build directory"
-    echo "  install   Install dependencies"
-    echo "  help      Show this help message"
-    echo ""
-    echo "Examples:"
-    echo "  $0 build    # Build the project"
-    echo "  $0 test     # Build and run tests"
-    echo "  $0 clean    # Clean build directory"
+# 解析命令行参数
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --clean)
+                CLEAN_BUILD=true
+                shift
+                ;;
+            --no-test)
+                RUN_TESTS=false
+                shift
+                ;;
+            --release)
+                BUILD_TYPE="Release"
+                shift
+                ;;
+            --debug)
+                BUILD_TYPE="Debug"
+                shift
+                ;;
+            --help)
+                show_help
+                exit 0
+                ;;
+            *)
+                print_error "未知选项: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
 }
 
 # 主函数
 main() {
+    echo "=========================================="
+    echo "iov-vehicle-tbox-diag 构建脚本"
+    echo "=========================================="
+    echo ""
+
+    # 解析参数
+    parse_args "$@"
+
     # 检查依赖
     check_dependencies
 
-    case "${1:-build}" in
-        build)
-            install_dependencies
-            build_project
-            ;;
-        test)
-            install_dependencies
-            build_project
-            run_tests
-            ;;
-        clean)
-            clean_build
-            ;;
-        install)
-            install_dependencies
-            ;;
-        help)
-            show_help
-            ;;
-        *)
-            print_error "Unknown option: $1"
-            show_help
-            exit 1
-            ;;
-    esac
+    # 清理构建目录（如果需要）
+    if [ "$CLEAN_BUILD" = true ]; then
+        clean_build
+    fi
 
-    print_info "Build completed successfully"
+    # 安装依赖
+    install_dependencies
+
+    # 配置项目
+    if ! configure_project; then
+        exit 1
+    fi
+
+    # 编译项目
+    if ! build_project; then
+        exit 1
+    fi
+
+    # 运行测试
+    if ! run_tests; then
+        exit 1
+    fi
+
+    # 显示摘要
+    show_summary
+
+    print_success "构建流程完成!"
 }
 
-# 执行主函数
+# 运行主函数
 main "$@"

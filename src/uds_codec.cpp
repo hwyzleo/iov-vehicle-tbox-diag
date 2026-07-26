@@ -1,8 +1,8 @@
 #include "uds_codec.h"
 #include "constants.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
 #include <cstring>
-#include <iostream>
-#include <cstdio>
 #include <iostream>
 #include <cstdio>
 
@@ -41,9 +41,24 @@ bool UdsCodec::decode(const std::vector<uint8_t>& raw, DiagRequest& request) {
             break;
 
         case UdsService::ROUTINE_CONTROL:
-            std::cout << "[DIAG] RoutineControl raw_size=" << raw.size() << " raw=";
-            for (auto b : raw) printf("%02x ", b);
-            std::cout << std::endl;
+            {
+                // 将 raw bytes 转为 hex 字符串用于日志
+                std::string hex_str;
+                hex_str.reserve(raw.size() * 3);
+                for (auto b : raw) {
+                    char buf[4];
+                    snprintf(buf, sizeof(buf), "%02x ", b);
+                    hex_str += buf;
+                }
+                DiagLogAdapter::uds_router().debug(
+                    "diag.uds.routine_control_raw",
+                    "RoutineControl raw decode",
+                    {fw::log::Field(events::fields::PAYLOAD_SIZE,
+                        fw::log::FieldValue::makeInt(static_cast<int64_t>(raw.size()))),
+                     fw::log::Field("raw_hex",
+                        fw::log::FieldValue::makeString(hex_str))}
+                );
+            }
             if (raw.size() < 4) return false;
             request.sub_function = raw[1];
             request.did_or_rid = (static_cast<uint16_t>(raw[2]) << 8) | raw[3];

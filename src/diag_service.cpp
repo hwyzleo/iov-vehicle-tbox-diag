@@ -1,5 +1,7 @@
 #include "diag_service.h"
 #include "uds_codec.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
 #include <iostream>
 #include <vector>
 
@@ -32,13 +34,27 @@ DiagErrorCode DiagService::initialize_submodules() {
     session_mgr_ = std::make_shared<SessionManager>();
 
     if (!sec_) {
-        std::cerr << "DIAG: SEC interface not set" << std::endl;
+        DiagLogAdapter::uds_router().error(
+            events::DOWNSTREAM_CALL_FAILED,
+            "SEC interface not set",
+            {fw::log::Field(events::fields::DOWNSTREAM,
+                fw::log::FieldValue::makeString("sec")),
+             fw::log::Field(events::fields::FAILURE_REASON,
+                fw::log::FieldValue::makeString("interface_not_set"))}
+        );
         return DiagErrorCode::SEC_UNAVAILABLE;
     }
     security_access_ = std::make_shared<SecurityAccess>(sec_);
 
     if (!prov_) {
-        std::cerr << "DIAG: PROV interface not set" << std::endl;
+        DiagLogAdapter::downstream().error(
+            events::DOWNSTREAM_CALL_FAILED,
+            "PROV interface not set",
+            {fw::log::Field(events::fields::DOWNSTREAM,
+                fw::log::FieldValue::makeString("prov")),
+             fw::log::Field(events::fields::FAILURE_REASON,
+                fw::log::FieldValue::makeString("interface_not_set"))}
+        );
         return DiagErrorCode::PROV_UNAVAILABLE;
     }
     dispatcher_ = std::make_shared<ServiceDispatcher>(prov_, sec_, session_mgr_, security_access_);
@@ -111,26 +127,61 @@ void DiagService::process_pending_requests() {
     request.transport = transport_->get_transport_type();
 
     if (!UdsCodec::decode(raw, request)) {
-        std::cerr << "[DIAG] Failed to decode UDS request" << std::endl;
+        DiagLogAdapter::uds_router().error(
+            events::UDS_DECODE_FAILED,
+            "Failed to decode UDS request",
+            {fw::log::Field(events::fields::PAYLOAD_SIZE,
+                fw::log::FieldValue::makeInt(static_cast<int64_t>(raw.size())))}
+        );
         return;
     }
 
-    std::cout << "[DIAG] RX SID=0x" << std::hex << static_cast<int>(request.service_id)
-              << " sub=0x" << static_cast<int>(request.sub_function)
-              << " did=0x" << request.did_or_rid
-              << " size=" << std::dec << raw.size() << std::endl;
+    {
+        char sid_buf[16], sub_buf[16], did_buf[16];
+        snprintf(sid_buf, sizeof(sid_buf), "0x%02X", request.service_id);
+        snprintf(sub_buf, sizeof(sub_buf), "0x%02X", request.sub_function);
+        snprintf(did_buf, sizeof(did_buf), "0x%04X", request.did_or_rid);
+        DiagLogAdapter::uds_router().info(
+            events::UDS_REQUEST_COMPLETED,
+            "UDS request received",
+            {fw::log::Field(events::fields::SERVICE_ID,
+                fw::log::FieldValue::makeString(sid_buf)),
+             fw::log::Field(events::fields::SUB_FUNCTION,
+                fw::log::FieldValue::makeString(sub_buf)),
+             fw::log::Field(events::fields::DID_OR_RID,
+                fw::log::FieldValue::makeString(did_buf)),
+             fw::log::Field(events::fields::PAYLOAD_SIZE,
+                fw::log::FieldValue::makeInt(static_cast<int64_t>(raw.size())))}
+        );
+    }
 
     DiagResponse response = dispatcher_->dispatch(request);
 
     auto resp_raw = UdsCodec::encode(response);
     if (!transport_->send(resp_raw)) {
-        std::cerr << "[DIAG] Failed to send response" << std::endl;
+        DiagLogAdapter::response().error(
+            events::UDS_SEND_FAILED,
+            "Failed to send UDS response"
+        );
     }
 
-    std::cout << "[DIAG] TX " << (response.positive ? "POS" : "NEG")
-              << " SID=0x" << std::hex << static_cast<int>(response.service_id)
-              << " nrc=0x" << static_cast<int>(response.nrc)
-              << " size=" << std::dec << resp_raw.size() << std::endl;
+    {
+        char sid_buf[16], nrc_buf[16];
+        snprintf(sid_buf, sizeof(sid_buf), "0x%02X", response.service_id);
+        snprintf(nrc_buf, sizeof(nrc_buf), "0x%02X", response.nrc);
+        DiagLogAdapter::response().info(
+            "diag.uds.response.sent",
+            "UDS response sent",
+            {fw::log::Field(events::fields::POSITIVE,
+                fw::log::FieldValue::makeBool(response.positive)),
+             fw::log::Field(events::fields::SERVICE_ID,
+                fw::log::FieldValue::makeString(sid_buf)),
+             fw::log::Field(events::fields::NRC,
+                fw::log::FieldValue::makeString(nrc_buf)),
+             fw::log::Field(events::fields::PAYLOAD_SIZE,
+                fw::log::FieldValue::makeInt(static_cast<int64_t>(resp_raw.size())))}
+        );
+    }
 }
 
 void DiagService::shutdown() {
@@ -191,9 +242,12 @@ DiagErrorCode DiagService::load_config() {
         // This allows tests to run without config files
         auto result = config_manager.load("diag");
         if (result != hwyz::config::ConfigError::kOk) {
-            std::cerr << "DIAG: Warning: Failed to load configuration: "
-                      << static_cast<uint32_t>(result) << std::endl;
-            std::cerr << "DIAG: Using default configuration" << std::endl;
+            DiagLogAdapter::uds_router().warn(
+                events::CONFIG_LOADED,
+                "Failed to load configuration, using defaults",
+                {fw::log::Field("error_code",
+                    fw::log::FieldValue::makeInt(static_cast<uint32_t>(result)))}
+            );
             
             // Set a null snapshot, apply_config will use defaults
             config_.config_snapshot = nullptr;
@@ -203,16 +257,22 @@ DiagErrorCode DiagService::load_config() {
         // Get configuration snapshot
         config_.config_snapshot = config_manager.getSnapshot();
         if (!config_.config_snapshot) {
-            std::cerr << "DIAG: Warning: Failed to get configuration snapshot" << std::endl;
-            std::cerr << "DIAG: Using default configuration" << std::endl;
+            DiagLogAdapter::uds_router().warn(
+                events::CONFIG_LOADED,
+                "Failed to get configuration snapshot, using defaults"
+            );
             return DiagErrorCode::SUCCESS;
         }
 
         // Apply configuration
         return apply_config();
     } catch (const std::exception& e) {
-        std::cerr << "DIAG: Exception during configuration loading: " << e.what() << std::endl;
-        std::cerr << "DIAG: Using default configuration" << std::endl;
+        DiagLogAdapter::uds_router().error(
+            events::CONFIG_LOADED,
+            "Exception during configuration loading, using defaults",
+            {fw::log::Field("exception",
+                fw::log::FieldValue::makeString(e.what()))}
+        );
         return DiagErrorCode::SUCCESS;
     }
 }
@@ -227,24 +287,44 @@ DiagErrorCode DiagService::apply_config() {
         auto timing_section = config_.config_snapshot->getSection("timing");
         if (timing_section) {
             // Update timing constants (these will be used by session_manager and service_dispatcher)
-            std::cout << "[DIAG] Loaded timing configuration" << std::endl;
+            DiagLogAdapter::uds_router().info(
+                events::CONFIG_LOADED,
+                "Loaded timing configuration",
+                {fw::log::Field("section",
+                    fw::log::FieldValue::makeString("timing"))}
+            );
         }
 
         // Apply security configuration
         auto security_section = config_.config_snapshot->getSection("security");
         if (security_section) {
-            std::cout << "[DIAG] Loaded security configuration" << std::endl;
+            DiagLogAdapter::uds_router().info(
+                events::CONFIG_LOADED,
+                "Loaded security configuration",
+                {fw::log::Field("section",
+                    fw::log::FieldValue::makeString("security"))}
+            );
         }
 
         // Apply transport configuration
         auto transport_section = config_.config_snapshot->getSection("transport");
         if (transport_section) {
-            std::cout << "[DIAG] Loaded transport configuration" << std::endl;
+            DiagLogAdapter::uds_router().info(
+                events::CONFIG_LOADED,
+                "Loaded transport configuration",
+                {fw::log::Field("section",
+                    fw::log::FieldValue::makeString("transport"))}
+            );
         }
 
         return DiagErrorCode::SUCCESS;
     } catch (const std::exception& e) {
-        std::cerr << "DIAG: Exception during configuration application: " << e.what() << std::endl;
+        DiagLogAdapter::uds_router().error(
+            events::CONFIG_LOADED,
+            "Exception during configuration application",
+            {fw::log::Field("exception",
+                fw::log::FieldValue::makeString(e.what()))}
+        );
         return DiagErrorCode::CONFIG_LOAD_FAILED;
     }
 }

@@ -41,14 +41,21 @@ int main() {
     auto& config_manager = hwyz::config::ConfigManager::instance();
     auto config_result = config_manager.load("diag");
     if (config_result != hwyz::config::ConfigError::kOk) {
-        std::cerr << "Failed to load DIAG configuration: "
-                  << static_cast<uint32_t>(config_result) << std::endl;
+        tbox::diag::DiagLogAdapter::transport().fatal(
+            "diag.config.load_failed",
+            "Failed to load DIAG configuration",
+            {tbox::fw::log::Field("error_code",
+                tbox::fw::log::FieldValue::makeInt(static_cast<uint32_t>(config_result)))}
+        );
         return 1;
     }
 
     auto config_snapshot = config_manager.getSnapshot();
     if (!config_snapshot) {
-        std::cerr << "Failed to get configuration snapshot" << std::endl;
+        tbox::diag::DiagLogAdapter::transport().fatal(
+            "diag.config.snapshot_failed",
+            "Failed to get configuration snapshot"
+        );
         return 1;
     }
 
@@ -78,6 +85,7 @@ int main() {
     // 初始化 Logger
     auto log_result = tbox::diag::DiagLogAdapter::init("diag", log_config);
     if (log_result.error != tbox::fw::log::LogError::kOk) {
+        // Logger 未初始化，只能 fallback 到 stderr
         std::cerr << "FATAL: Logger init failed: " << log_result.error_message << std::endl;
         return 1;
     }
@@ -95,7 +103,10 @@ int main() {
 
     auto doip = std::make_shared<DoIpAdapter>(doip_config);
     if (!doip->start_server()) {
-        std::cerr << "Failed to start DoIP server" << std::endl;
+        tbox::diag::DiagLogAdapter::transport().fatal(
+            tbox::diag::events::TRANSPORT_LISTEN_FAILED,
+            "Failed to start DoIP server"
+        );
         return 1;
     }
 
@@ -108,10 +119,24 @@ int main() {
     std::string prov_socket_path = config_snapshot->getString("prov.ipc_socket_path", "/tmp/tbox-prov.sock");
     auto prov_client = std::make_shared<tbox::prov::ProvClient>(prov_socket_path);
     if (!prov_client->connect()) {
-        std::cerr << "Failed to connect to PROV IPC service at " << prov_socket_path << std::endl;
+        tbox::diag::DiagLogAdapter::downstream().fatal(
+            tbox::diag::events::PROV_CONNECTION_FAILED,
+            "Failed to connect to PROV IPC service",
+            {tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM,
+                tbox::fw::log::FieldValue::makeString("prov")),
+             tbox::fw::log::Field("socket_path",
+                tbox::fw::log::FieldValue::makeString(prov_socket_path))}
+        );
         return 1;
     }
-    std::cout << "Connected to PROV IPC service at " << prov_socket_path << std::endl;
+    tbox::diag::DiagLogAdapter::downstream().info(
+        tbox::diag::events::PROV_CONNECTED,
+        "Connected to PROV IPC service",
+        {tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM,
+            tbox::fw::log::FieldValue::makeString("prov")),
+         tbox::fw::log::Field("socket_path",
+            tbox::fw::log::FieldValue::makeString(prov_socket_path))}
+    );
     service->set_prov(std::make_shared<RealProvAdapter>(prov_client));
 
     // 创建SEC服务所需目录
@@ -140,8 +165,15 @@ int main() {
     sec_service->set_prov_service(std::make_shared<ProvToSecAdapter>(prov_client));
     auto sec_init = sec_service->initialize();
     if (sec_init != tbox::sec::ErrorCode::SUCCESS) {
-        std::cerr << "Failed to initialize SEC service: "
-                  << tbox::sec::error_code_to_string(sec_init) << std::endl;
+        tbox::diag::DiagLogAdapter::downstream().fatal(
+            tbox::diag::events::DOWNSTREAM_CALL_FAILED,
+            "Failed to initialize SEC service",
+            {tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM,
+                tbox::fw::log::FieldValue::makeString("sec")),
+             tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM_ERROR_CODE,
+                tbox::fw::log::FieldValue::makeString(
+                    tbox::sec::error_code_to_string(sec_init)))}
+        );
         return 1;
     }
     service->set_sec(std::make_shared<RealSecAdapter>(sec_service));
@@ -149,26 +181,36 @@ int main() {
 
     auto result = service->initialize();
     if (result != DiagErrorCode::SUCCESS) {
-        std::cerr << "Failed to initialize DIAG service: "
-                  << error_code_to_string(result) << std::endl;
+        tbox::diag::DiagLogAdapter::transport().fatal(
+            "diag.service.init_failed",
+            "Failed to initialize DIAG service",
+            {tbox::fw::log::Field("error_code",
+                tbox::fw::log::FieldValue::makeString(error_code_to_string(result)))}
+        );
         return 1;
     }
 
     tbox::diag::DiagLogAdapter::transport().info(
-        "diag.service.initialized",
-        "TBOX DIAG Service initialized successfully"
+        tbox::diag::events::SERVICE_INITIALIZED,
+        "TBOX DIAG Service initialized successfully",
+        {tbox::fw::log::Field("doip_port",
+            tbox::fw::log::FieldValue::makeInt(doip_config.port))}
     );
-    std::cout << "DIAG service running on DoIP port " << doip_config.port
-              << " (Ctrl+C to stop)" << std::endl;
 
     while (g_running) {
         service->process_pending_requests();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    std::cout << "DIAG service shutting down..." << std::endl;
+    tbox::diag::DiagLogAdapter::transport().info(
+        tbox::diag::events::SERVICE_SHUTTING_DOWN,
+        "DIAG service shutting down"
+    );
     service->shutdown();
-    std::cout << "DIAG service stopped." << std::endl;
+    tbox::diag::DiagLogAdapter::transport().info(
+        tbox::diag::events::SERVICE_STOPPED,
+        "DIAG service stopped"
+    );
 
     return 0;
 }

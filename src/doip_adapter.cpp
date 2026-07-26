@@ -28,7 +28,10 @@ bool DoIpAdapter::start_server() {
 
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd_ < 0) {
-        std::cerr << "[DoIP] Failed to create socket" << std::endl;
+        DiagLogAdapter::transport().error(
+            events::TRANSPORT_SOCKET_FAILED,
+            "Failed to create DoIP socket"
+        );
         return false;
     }
 
@@ -42,23 +45,38 @@ bool DoIpAdapter::start_server() {
     inet_pton(AF_INET, config_.listen_address.c_str(), &addr.sin_addr);
 
     if (bind(server_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        std::cerr << "[DoIP] Failed to bind to " << config_.listen_address
-                  << ":" << config_.port << std::endl;
+        DiagLogAdapter::transport().error(
+            events::TRANSPORT_BIND_FAILED,
+            "Failed to bind DoIP socket",
+            {tbox::fw::log::Field("address",
+                tbox::fw::log::FieldValue::makeString(config_.listen_address)),
+             tbox::fw::log::Field("port",
+                tbox::fw::log::FieldValue::makeInt(config_.port))}
+        );
         ::close(server_fd_);
         server_fd_ = -1;
         return false;
     }
 
     if (listen(server_fd_, 1) < 0) {
-        std::cerr << "[DoIP] Failed to listen" << std::endl;
+        DiagLogAdapter::transport().error(
+            events::TRANSPORT_LISTEN_FAILED,
+            "Failed to listen on DoIP socket"
+        );
         ::close(server_fd_);
         server_fd_ = -1;
         return false;
     }
 
     listening_ = true;
-    std::cout << "[DoIP] Server listening on " << config_.listen_address
-              << ":" << config_.port << std::endl;
+    DiagLogAdapter::transport().info(
+        events::TRANSPORT_LISTENING,
+        "DoIP server listening",
+        {tbox::fw::log::Field("address",
+            tbox::fw::log::FieldValue::makeString(config_.listen_address)),
+         tbox::fw::log::Field("port",
+            tbox::fw::log::FieldValue::makeInt(config_.port))}
+    );
     return true;
 }
 
@@ -70,7 +88,10 @@ bool DoIpAdapter::connect() {
     }
 
     if (!listening_) {
-        std::cerr << "[DoIP] Server not started" << std::endl;
+        DiagLogAdapter::transport().error(
+            events::TRANSPORT_CONNECTION_FAILED,
+            "DoIP server not started"
+        );
         return false;
     }
 
@@ -87,14 +108,23 @@ bool DoIpAdapter::connect() {
     socklen_t client_len = sizeof(client_addr);
     client_fd_ = accept(server_fd_, (struct sockaddr*)&client_addr, &client_len);
     if (client_fd_ < 0) {
-        std::cerr << "[DoIP] Failed to accept connection" << std::endl;
+        DiagLogAdapter::transport().error(
+            events::TRANSPORT_ACCEPT_FAILED,
+            "Failed to accept DoIP connection"
+        );
         return false;
     }
 
     char ip_str[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
-    std::cout << "[DoIP] Client connected from " << ip_str
-              << ":" << ntohs(client_addr.sin_port) << std::endl;
+    DiagLogAdapter::transport().info(
+        events::TRANSPORT_CONNECTED,
+        "DoIP client connected",
+        {tbox::fw::log::Field("client_ip",
+            tbox::fw::log::FieldValue::makeString(ip_str)),
+         tbox::fw::log::Field("client_port",
+            tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(ntohs(client_addr.sin_port))))}
+    );
 
     connected_ = true;
 
@@ -112,7 +142,10 @@ bool DoIpAdapter::connect() {
     );
 
     if (!doip_handshake()) {
-        std::cerr << "[DoIP] Handshake failed" << std::endl;
+        DiagLogAdapter::transport().error(
+            events::TRANSPORT_HANDSHAKE_FAILED,
+            "DoIP handshake failed"
+        );
         disconnect();
         return false;
     }
@@ -127,7 +160,10 @@ void DoIpAdapter::disconnect() {
         client_fd_ = -1;
     }
     connected_ = false;
-    std::cout << "[DoIP] Client disconnected" << std::endl;
+    DiagLogAdapter::transport().info(
+        events::TRANSPORT_DISCONNECTED,
+        "DoIP client disconnected"
+    );
 }
 
 bool DoIpAdapter::is_connected() const {
@@ -185,7 +221,12 @@ std::vector<uint8_t> DoIpAdapter::receive(uint32_t timeout_ms) {
                            static_cast<uint32_t>(header[7]);
 
     if (payload_len > 4096) {
-        std::cerr << "[DoIP] Payload too large: " << payload_len << std::endl;
+        DiagLogAdapter::transport().error(
+            events::TRANSPORT_PAYLOAD_TOO_LARGE,
+            "DoIP payload too large",
+            {tbox::fw::log::Field("payload_size",
+                tbox::fw::log::FieldValue::makeInt(static_cast<int64_t>(payload_len)))}
+        );
         return {};
     }
 
@@ -267,7 +308,10 @@ bool DoIpAdapter::doip_handshake() {
 
     int ret = poll(&pfd, 1, 3000);
     if (ret <= 0) {
-        std::cerr << "[DoIP] Handshake timeout" << std::endl;
+        DiagLogAdapter::transport().error(
+            events::TRANSPORT_HANDSHAKE_FAILED,
+            "DoIP handshake timeout"
+        );
         return false;
     }
 
@@ -301,7 +345,10 @@ bool DoIpAdapter::doip_handshake() {
             resp[4] = 0x10;
             auto frame = build_doip_frame(0x0006, resp);
             ::send(client_fd_, frame.data(), frame.size(), 0);
-            std::cout << "[DoIP] Routing activation accepted" << std::endl;
+            DiagLogAdapter::transport().info(
+                events::TRANSPORT_ROUTING_ACTIVATED,
+                "DoIP routing activation accepted"
+            );
             return true;
         }
     }
@@ -317,11 +364,21 @@ bool DoIpAdapter::doip_handshake() {
         resp[4] = 0x10;
         auto frame = build_doip_frame(0x0006, resp);
         ::send(client_fd_, frame.data(), frame.size(), 0);
-        std::cout << "[DoIP] Routing activation accepted" << std::endl;
+        DiagLogAdapter::transport().info(
+            events::TRANSPORT_ROUTING_ACTIVATED,
+            "DoIP routing activation accepted"
+        );
         return true;
     }
 
-    std::cerr << "[DoIP] Unexpected payload type: 0x" << std::hex << payload_type << std::endl;
+    char type_buf[16];
+    snprintf(type_buf, sizeof(type_buf), "0x%04X", payload_type);
+    DiagLogAdapter::transport().error(
+        events::TRANSPORT_HANDSHAKE_FAILED,
+        "Unexpected DoIP payload type during handshake",
+        {tbox::fw::log::Field("payload_type",
+            tbox::fw::log::FieldValue::makeString(type_buf))}
+    );
     return false;
 }
 

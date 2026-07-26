@@ -16,6 +16,15 @@ enum class SessionType : uint8_t {
     EXTENDED = 0x03
 };
 
+inline std::string session_to_string(SessionType type) {
+    switch (type) {
+        case SessionType::DEFAULT: return "DEFAULT";
+        case SessionType::PROGRAMMING: return "PROGRAMMING";
+        case SessionType::EXTENDED: return "EXTENDED";
+        default: return "UNKNOWN";
+    }
+}
+
 enum class SessionState : uint8_t {
     IDLE,
     ACTIVE,

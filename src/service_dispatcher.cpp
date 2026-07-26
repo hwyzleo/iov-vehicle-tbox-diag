@@ -80,8 +80,19 @@ DiagResponse ServiceDispatcher::dispatch(const DiagRequest& request) {
 
 DiagResponse ServiceDispatcher::handle_session_control(const DiagRequest& request) {
     uint8_t session_type = request.sub_function & 0x7F;
-    std::cout << "[DIAG] SessionControl: sub_function=0x" << std::hex << (int)request.sub_function
-              << " session_type=0x" << (int)session_type << std::endl;
+    {
+        char sub_buf[16], sess_buf[16];
+        snprintf(sub_buf, sizeof(sub_buf), "0x%02X", request.sub_function);
+        snprintf(sess_buf, sizeof(sess_buf), "0x%02X", session_type);
+        DiagLogAdapter::session().info(
+            events::SESSION_CHANGED,
+            "SessionControl request",
+            {fw::log::Field(events::fields::SUB_FUNCTION,
+                fw::log::FieldValue::makeString(sub_buf)),
+             fw::log::Field(events::fields::TARGET_SESSION,
+                fw::log::FieldValue::makeString(sess_buf))}
+        );
+    }
 
     auto result = session_mgr_->switch_session(session_type, request.source_address,
                                                 request.transport);
@@ -125,8 +136,16 @@ DiagResponse ServiceDispatcher::handle_security_access(const DiagRequest& reques
 
     if (is_request_seed) {
         std::vector<uint8_t> seed;
-        std::cout << "[DIAG] request_seed sub_function=0x" << std::hex
-                  << (int)request.sub_function << std::endl;
+        {
+            char sub_buf[16];
+            snprintf(sub_buf, sizeof(sub_buf), "0x%02X", request.sub_function);
+            DiagLogAdapter::session().info(
+                events::SECURITY_ACCESS_SUCCEEDED,
+                "Security access request_seed",
+                {fw::log::Field(events::fields::SUB_FUNCTION,
+                    fw::log::FieldValue::makeString(sub_buf))}
+            );
+        }
         auto result = security_access_->request_seed(raw_level, seed);
         if (result != DiagErrorCode::SUCCESS) {
             uint8_t nrc = Nrc::SECURITY_ACCESS_DENIED;
@@ -154,17 +173,37 @@ DiagResponse ServiceDispatcher::handle_security_access(const DiagRequest& reques
 }
 
 DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& request) {
-    std::cout << "[DIAG] RoutineControl rid=0x" << std::hex << request.did_or_rid
-              << " payload_size=" << std::dec << request.payload.size() << std::endl;
+    {
+        char rid_buf[16];
+        snprintf(rid_buf, sizeof(rid_buf), "0x%04X", request.did_or_rid);
+        DiagLogAdapter::uds_router().info(
+            "diag.uds.routine_control",
+            "RoutineControl request",
+            {fw::log::Field(events::fields::DID_OR_RID,
+                fw::log::FieldValue::makeString(rid_buf)),
+             fw::log::Field(events::fields::PAYLOAD_SIZE,
+                fw::log::FieldValue::makeInt(static_cast<int64_t>(request.payload.size())))}
+        );
+    }
 
     uint16_t rid = request.did_or_rid;
 
     // 检查会话类型（证书相关操作只在 Programming Session 下可用）
     if (rid == Rid::GENERATE_KEY_PAIR || rid == Rid::READ_CSR || rid == Rid::INJECT_CERTIFICATE) {
         auto current_session = session_mgr_->get_session();
-        std::cout << "[DIAG] Certificate RID check: session_type=0x" << std::hex
-                  << (int)current_session.session_type << " expected=0x"
-                  << (int)SessionType::PROGRAMMING << std::endl;
+        {
+            char cur_buf[16], exp_buf[16];
+            snprintf(cur_buf, sizeof(cur_buf), "0x%02X", current_session.session_type);
+            snprintf(exp_buf, sizeof(exp_buf), "0x%02X", static_cast<int>(SessionType::PROGRAMMING));
+            DiagLogAdapter::uds_router().debug(
+                "diag.uds.certificate_session_check",
+                "Certificate RID session check",
+                {fw::log::Field("current_session",
+                    fw::log::FieldValue::makeString(cur_buf)),
+                 fw::log::Field("expected_session",
+                    fw::log::FieldValue::makeString(exp_buf))}
+            );
+        }
         if (current_session.session_type != SessionType::PROGRAMMING) {
             return create_negative_response(UdsService::ROUTINE_CONTROL,
                                             Nrc::SERVICE_NOT_SUPPORTED_IN_SESSION,
@@ -200,8 +239,14 @@ DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& reques
     if (rid == Rid::WRITE_VIN_ROUTINE) {
         // Extract VIN from payload (17 bytes)
         if (request.payload.size() < 17) {
-            std::cout << "[DIAG] RoutineControl NRC0x13: payload_size=" << std::dec << request.payload.size()
-                      << " (need >= 17)" << std::endl;
+            DiagLogAdapter::uds_router().warn(
+                events::UDS_REQUEST_REJECTED,
+                "RoutineControl: payload too small for VIN",
+                {fw::log::Field(events::fields::PAYLOAD_SIZE,
+                    fw::log::FieldValue::makeInt(static_cast<int64_t>(request.payload.size()))),
+                 fw::log::Field("required_size",
+                    fw::log::FieldValue::makeInt(17))}
+            );
             return create_negative_response(UdsService::ROUTINE_CONTROL,
                                             Nrc::INCORRECT_MESSAGE_LENGTH,
                                             error_code_to_string(DiagErrorCode::INVALID_REQUEST_FORMAT));
@@ -232,7 +277,16 @@ DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& reques
 }
 
 DiagResponse ServiceDispatcher::handle_generate_key_pair(const DiagRequest& request) {
-    std::cout << "[DIAG] GenerateKeyPair rid=0x" << std::hex << request.did_or_rid << std::endl;
+    {
+        char rid_buf[16];
+        snprintf(rid_buf, sizeof(rid_buf), "0x%04X", request.did_or_rid);
+        DiagLogAdapter::uds_router().info(
+            "diag.uds.generate_key_pair",
+            "GenerateKeyPair request",
+            {fw::log::Field(events::fields::DID_OR_RID,
+                fw::log::FieldValue::makeString(rid_buf))}
+        );
+    }
 
     // 检查安全访问
     if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
@@ -265,7 +319,16 @@ DiagResponse ServiceDispatcher::handle_generate_key_pair(const DiagRequest& requ
 }
 
 DiagResponse ServiceDispatcher::handle_read_csr(const DiagRequest& request) {
-    std::cout << "[DIAG] ReadCSR rid=0x" << std::hex << request.did_or_rid << std::endl;
+    {
+        char rid_buf[16];
+        snprintf(rid_buf, sizeof(rid_buf), "0x%04X", request.did_or_rid);
+        DiagLogAdapter::uds_router().info(
+            "diag.uds.read_csr",
+            "ReadCSR request",
+            {fw::log::Field(events::fields::DID_OR_RID,
+                fw::log::FieldValue::makeString(rid_buf))}
+        );
+    }
 
     // 检查安全访问
     if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
@@ -284,7 +347,14 @@ DiagResponse ServiceDispatcher::handle_read_csr(const DiagRequest& request) {
     // 获取CSR
     std::vector<uint8_t> csr_der;
     bool result = sec_->get_csr(csr_der);
-    std::cout << "[DIAG] get_csr result=" << result << " csr_size=" << csr_der.size() << std::endl;
+    DiagLogAdapter::downstream().debug(
+        "diag.downstream.get_csr_result",
+        "get_csr result",
+        {fw::log::Field("success",
+            fw::log::FieldValue::makeBool(result)),
+         fw::log::Field("csr_size",
+            fw::log::FieldValue::makeInt(static_cast<int64_t>(csr_der.size())))}
+    );
     if (!result) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::GENERAL_PROGRAMMING_FAILURE,
@@ -297,14 +367,29 @@ DiagResponse ServiceDispatcher::handle_read_csr(const DiagRequest& request) {
         static_cast<uint8_t>(request.did_or_rid & 0xFF)
     };
     response_data.insert(response_data.end(), csr_der.begin(), csr_der.end());
-    std::cout << "[DIAG] ReadCSR response_size=" << response_data.size() << std::endl;
+    DiagLogAdapter::response().debug(
+        "diag.uds.read_csr_response",
+        "ReadCSR response built",
+        {fw::log::Field(events::fields::PAYLOAD_SIZE,
+            fw::log::FieldValue::makeInt(static_cast<int64_t>(response_data.size())))}
+    );
     return create_positive_response(UdsService::ROUTINE_CONTROL,
                                     request.sub_function, response_data);
 }
 
 DiagResponse ServiceDispatcher::handle_inject_certificate(const DiagRequest& request) {
-    std::cout << "[DIAG] InjectCertificate rid=0x" << std::hex << request.did_or_rid
-              << " payload_size=" << std::dec << request.payload.size() << std::endl;
+    {
+        char rid_buf[16];
+        snprintf(rid_buf, sizeof(rid_buf), "0x%04X", request.did_or_rid);
+        DiagLogAdapter::uds_router().info(
+            "diag.uds.inject_certificate",
+            "InjectCertificate request",
+            {fw::log::Field(events::fields::DID_OR_RID,
+                fw::log::FieldValue::makeString(rid_buf)),
+             fw::log::Field(events::fields::PAYLOAD_SIZE,
+                fw::log::FieldValue::makeInt(static_cast<int64_t>(request.payload.size())))}
+        );
+    }
 
     // 检查安全访问
     if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
@@ -345,23 +430,47 @@ DiagResponse ServiceDispatcher::handle_inject_certificate(const DiagRequest& req
 
 DiagResponse ServiceDispatcher::handle_read_data_by_identifier(const DiagRequest& request) {
     uint16_t did = request.did_or_rid;
-    std::cout << "[DIAG] ReadDID: did=0x" << std::hex << did
-              << " source=0x" << request.source_address
-              << " transport=" << static_cast<int>(request.transport)
-              << std::dec << std::endl;
+    {
+        char did_buf[16], src_buf[16];
+        snprintf(did_buf, sizeof(did_buf), "0x%04X", did);
+        snprintf(src_buf, sizeof(src_buf), "0x%04X", request.source_address);
+        DiagLogAdapter::uds_router().info(
+            "diag.uds.read_did",
+            "ReadDID request",
+            {fw::log::Field(events::fields::DID_OR_RID,
+                fw::log::FieldValue::makeString(did_buf)),
+             fw::log::Field("source_address",
+                fw::log::FieldValue::makeString(src_buf)),
+             fw::log::Field(events::fields::TRANSPORT,
+                fw::log::FieldValue::makeInt(static_cast<int64_t>(request.transport)))}
+        );
+    }
 
     if (did == Did::VIN || did == Did::BINDING_STATE) {
         // Check PROV availability
         if (!prov_ || !prov_->is_available()) {
-            std::cout << "[DIAG] ReadDID: PROV unavailable" << std::endl;
+            DiagLogAdapter::downstream().warn(
+                events::DOWNSTREAM_CALL_FAILED,
+                "ReadDID: PROV unavailable",
+                {fw::log::Field(events::fields::DOWNSTREAM,
+                    fw::log::FieldValue::makeString("prov"))}
+            );
             return create_negative_response(UdsService::READ_DATA_BY_IDENTIFIER,
                                             Nrc::CONDITIONS_NOT_CORRECT,
                                             error_code_to_string(DiagErrorCode::PROV_UNAVAILABLE));
         }
 
-        std::cout << "[DIAG] ReadDID: calling prov_->read_vin()..." << std::endl;
+        DiagLogAdapter::downstream().debug(
+            "diag.downstream.read_vin",
+            "Calling prov->read_vin()"
+        );
         auto read_result = prov_->read_vin();
-        std::cout << "[DIAG] ReadDID: read_vin returned valid=" << read_result.valid << std::endl;
+        DiagLogAdapter::downstream().debug(
+            "diag.downstream.read_vin_result",
+            "read_vin returned",
+            {fw::log::Field("valid",
+                fw::log::FieldValue::makeBool(read_result.valid))}
+        );
         if (!read_result.valid) {
             return create_negative_response(UdsService::READ_DATA_BY_IDENTIFIER,
                                             Nrc::CONDITIONS_NOT_CORRECT,
@@ -379,11 +488,21 @@ DiagResponse ServiceDispatcher::handle_read_data_by_identifier(const DiagRequest
             data.insert(data.end(), read_result.bind_state.begin(), read_result.bind_state.end());
         }
 
-        std::cout << "[DIAG] ReadDID: positive response size=" << data.size() << std::endl;
+        DiagLogAdapter::response().debug(
+            "diag.uds.read_did_response",
+            "ReadDID positive response",
+            {fw::log::Field(events::fields::PAYLOAD_SIZE,
+                fw::log::FieldValue::makeInt(static_cast<int64_t>(data.size())))}
+        );
         return create_positive_response(UdsService::READ_DATA_BY_IDENTIFIER, 0, data);
     }
 
-    std::cout << "[DIAG] ReadDID: did out of range -> NRC 0x31" << std::endl;
+    DiagLogAdapter::uds_router().warn(
+        events::UDS_REQUEST_REJECTED,
+        "ReadDID: DID out of range",
+        {fw::log::Field(events::fields::NRC,
+            fw::log::FieldValue::makeString("0x31"))}
+    );
     return create_negative_response(UdsService::READ_DATA_BY_IDENTIFIER,
                                     Nrc::REQUEST_OUT_OF_RANGE,
                                     "DIAG-1004");

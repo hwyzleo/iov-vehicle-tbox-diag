@@ -17,9 +17,22 @@ DiagErrorCode SessionManager::switch_session(uint8_t session_type, uint16_t sour
                                               TransportType transport) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    std::cout << "[SESSION] switch_session: requested=0x" << std::hex << (int)session_type
-              << " current=0x" << (int)session_.session_type
-              << " state=0x" << (int)session_.state << std::endl;
+    {
+        char req_buf[16], cur_buf[16], state_buf[16];
+        snprintf(req_buf, sizeof(req_buf), "0x%02X", session_type);
+        snprintf(cur_buf, sizeof(cur_buf), "0x%02X", session_.session_type);
+        snprintf(state_buf, sizeof(state_buf), "0x%02X", session_.state);
+        DiagLogAdapter::session().debug(
+            events::SESSION_CHANGED,
+            "switch_session requested",
+            {fw::log::Field("requested_session",
+                fw::log::FieldValue::makeString(req_buf)),
+             fw::log::Field("current_session",
+                fw::log::FieldValue::makeString(cur_buf)),
+             fw::log::Field("current_state",
+                fw::log::FieldValue::makeString(state_buf))}
+        );
+    }
 
     // Check if session is already occupied by another tester
     if (session_.state == SessionState::ACTIVE &&

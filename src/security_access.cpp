@@ -54,11 +54,15 @@ DiagErrorCode SecurityAccess::send_key(uint8_t level, const std::vector<uint8_t>
         return DiagErrorCode::SECURITY_ACCESS_DENIED;
     }
 
+    // Check if seed was requested before sendKey
+    auto& state = states_[seed_level];
+    if (!state.seed_requested) {
+        return DiagErrorCode::SECURITY_ACCESS_DENIED;
+    }
+
     // Verify key with SEC (pass the actual sendKey level)
-    // SEC service maintains its own seed state, so we don't need to check local state
     if (!sec_->verify_key(level, key)) {
         // Increment attempt count
-        auto& state = states_[seed_level];
         state.attempt_count++;
         state.seed_requested = false;
 
@@ -86,7 +90,6 @@ DiagErrorCode SecurityAccess::send_key(uint8_t level, const std::vector<uint8_t>
     }
 
     // Success - unlock
-    auto& state = states_[seed_level];
     state.unlocked = true;
     state.seed_requested = false;
     state.attempt_count = 0;
@@ -108,24 +111,45 @@ bool SecurityAccess::is_unlocked(uint8_t level) const {
     std::lock_guard<std::mutex> lock(mutex_);
     // Normalize: if level is even (sendKey), use level-1 (requestSeed) for state lookup
     uint8_t seed_level = ((level & 0x01) == 0 && level > 0) ? (level - 1) : level;
-    std::cout << "[SEC] is_unlocked check: level=0x" << std::hex << (int)level
-              << " seed_level=0x" << (int)seed_level
-              << " states_size=" << std::dec << states_.size() << std::endl;
-    
+    char level_buf[16], seed_buf[16];
+    snprintf(level_buf, sizeof(level_buf), "0x%02X", level);
+    snprintf(seed_buf, sizeof(seed_buf), "0x%02X", seed_level);
+    DiagLogAdapter::session().debug(
+        events::SECURITY_ACCESS_FAILED,
+        "is_unlocked check",
+        {fw::log::Field(events::fields::SECURITY_LEVEL,
+            fw::log::FieldValue::makeString(level_buf)),
+         fw::log::Field("seed_level",
+            fw::log::FieldValue::makeString(seed_buf)),
+         fw::log::Field("states_size",
+            fw::log::FieldValue::makeInt(static_cast<int64_t>(states_.size())))}
+    );
+
     // Check local state first
     auto it = states_.find(seed_level);
     if (it != states_.end()) {
-        std::cout << "[SEC] found state: unlocked=" << it->second.unlocked
-                  << " seed_requested=" << it->second.seed_requested << std::endl;
+        DiagLogAdapter::session().debug(
+            events::SECURITY_ACCESS_FAILED,
+            "is_unlocked found state",
+            {fw::log::Field("unlocked",
+                fw::log::FieldValue::makeBool(it->second.unlocked)),
+             fw::log::Field("seed_requested",
+                fw::log::FieldValue::makeBool(it->second.seed_requested))}
+        );
         if (it->second.unlocked) {
             return true;
         }
     }
-    
+
     // If local state doesn't show unlocked, check if SEC service has a valid seed
     // This handles the case where DIAG CLI is restarted but SEC service maintains state
     // For now, return false to require proper security access flow
-    std::cout << "[SEC] state not found or not unlocked for level 0x" << std::hex << (int)seed_level << std::endl;
+    DiagLogAdapter::session().debug(
+        events::SECURITY_ACCESS_FAILED,
+        "is_unlocked state not found or not unlocked",
+        {fw::log::Field("seed_level",
+            fw::log::FieldValue::makeString(seed_buf))}
+    );
     return false;
 }
 
