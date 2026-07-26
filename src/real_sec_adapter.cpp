@@ -1,4 +1,6 @@
 #include "real_sec_adapter.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
 #include <iostream>
 
 namespace tbox {
@@ -16,8 +18,19 @@ bool RealSecAdapter::get_seed(uint8_t level, std::vector<uint8_t>& seed) {
     std::cout << "[REAL-SEC] get_seed level=" << static_cast<int>(level) << std::endl;
     auto result = service_->get_seed(level, seed);
     if (result != sec::ErrorCode::SUCCESS) {
-        std::cerr << "[REAL-SEC] get_seed failed: "
-                  << sec::error_code_to_string(result) << std::endl;
+        // 记录下游调用失败
+        tbox::diag::DiagLogAdapter::downstream().error(
+            tbox::diag::events::DOWNSTREAM_CALL_FAILED,
+            "SEC call failed",
+            {
+                tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM, 
+                    tbox::fw::log::FieldValue::makeString("sec")),
+                tbox::fw::log::Field(tbox::diag::events::fields::OPERATION, 
+                    tbox::fw::log::FieldValue::makeString("get_seed")),
+                tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM_ERROR_CODE, 
+                    tbox::fw::log::FieldValue::makeInt(static_cast<int>(result)))
+            }
+        );
         return false;
     }
 
