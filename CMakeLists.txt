@@ -138,6 +138,7 @@ add_executable(TboxDiagLogTests
     tests/test_diag_log_events.cpp
     tests/test_diag_context.cpp
     tests/test_diag_log_adapter.cpp
+    tests/test_diag_log_integration.cpp
     src/diag_context.cpp
     src/diag_log_adapter.cpp
 )
