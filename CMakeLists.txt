@@ -53,6 +53,7 @@ set(LIB_SOURCES
     src/do_can_adapter.cpp
     src/real_prov.cpp
     src/prov_to_sec_adapter.cpp
+    src/diag_context.cpp
 )
 
 # 创建diag_service库
@@ -136,9 +137,19 @@ target_link_libraries(diag_cli PRIVATE diag_service_lib sec_ipc_adapter hwyz)
 # DIAG Log Tests
 add_executable(TboxDiagLogTests
     tests/test_diag_log_events.cpp
+    tests/test_diag_context.cpp
+    src/diag_context.cpp
 )
-target_include_directories(TboxDiagLogTests PRIVATE ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(TboxDiagLogTests PRIVATE GTest::GTest GTest::gmock GTest::Main)
+target_include_directories(TboxDiagLogTests PRIVATE 
+    ${PROJECT_SOURCE_DIR}/include
+    ${FRAMEWORK_SOURCE_DIR}/include
+)
+target_link_libraries(TboxDiagLogTests PRIVATE 
+    tbox-framework
+    GTest::GTest 
+    GTest::gmock 
+    GTest::Main
+)
 set_target_properties(TboxDiagLogTests PROPERTIES
     BUILD_RPATH_USE_ORIGIN TRUE
     INSTALL_RPATH_USE_LINK_PATH TRUE
