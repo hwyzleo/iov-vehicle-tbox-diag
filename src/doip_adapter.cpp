@@ -1,4 +1,7 @@
 #include "doip_adapter.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
+#include "diag_context.h"
 #include <iostream>
 #include <cstring>
 #include <unistd.h>
@@ -94,6 +97,19 @@ bool DoIpAdapter::connect() {
               << ":" << ntohs(client_addr.sin_port) << std::endl;
 
     connected_ = true;
+
+    // 记录连接建立
+    std::string source_hash = tbox::diag::hash_source_address(remote_address_);
+    tbox::diag::DiagLogAdapter::transport().info(
+        tbox::diag::events::TRANSPORT_CONNECTED,
+        "DoIP connection established",
+        {
+            tbox::fw::log::Field(tbox::diag::events::fields::TRANSPORT, 
+                tbox::fw::log::FieldValue::makeString("doip")),
+            tbox::fw::log::Field(tbox::diag::events::fields::SOURCE_HASH, 
+                tbox::fw::log::FieldValue::makeString(source_hash))
+        }
+    );
 
     if (!doip_handshake()) {
         std::cerr << "[DoIP] Handshake failed" << std::endl;
