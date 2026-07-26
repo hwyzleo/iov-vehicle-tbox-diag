@@ -1,4 +1,6 @@
 #include "nrc_mapper.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
 #include <iostream>
 #include <map>
 
@@ -82,8 +84,17 @@ std::string NrcMapper::get_nrc_description(uint8_t nrc) {
 }
 
 void NrcMapper::log_diag_error(DiagErrorCode error, const std::string& context) {
-    std::cerr << "DIAG Error [" << error_code_to_string(error) << "]: "
-              << error_code_to_description(error) << " - " << context << std::endl;
+    // 使用 Logger 输出错误
+    tbox::diag::DiagLogAdapter::uds_router().error(
+        "diag.nrc_mapper.error",
+        error_code_to_description(error),
+        {
+            tbox::fw::log::Field("error_code", 
+                tbox::fw::log::FieldValue::makeString(error_code_to_string(error))),
+            tbox::fw::log::Field("context", 
+                tbox::fw::log::FieldValue::makeString(context))
+        }
+    );
 }
 
 } // namespace diag
