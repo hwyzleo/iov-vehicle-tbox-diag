@@ -1,4 +1,6 @@
 #include "security_access.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
 #include <iostream>
 #include <chrono>
 
@@ -66,6 +68,20 @@ DiagErrorCode SecurityAccess::send_key(uint8_t level, const std::vector<uint8_t>
                 std::chrono::milliseconds(SecurityConfig::LOCKOUT_DURATION_MS);
         }
 
+        // 记录安全访问失败
+        tbox::diag::DiagLogAdapter::session().warn(
+            tbox::diag::events::SECURITY_ACCESS_FAILED,
+            "Security access verification failed",
+            {
+                tbox::fw::log::Field(tbox::diag::events::fields::SECURITY_LEVEL, 
+                    tbox::fw::log::FieldValue::makeString("0x" + std::to_string(level))),
+                tbox::fw::log::Field(tbox::diag::events::fields::FAILURE_REASON, 
+                    tbox::fw::log::FieldValue::makeString("invalid_key")),
+                tbox::fw::log::Field(tbox::diag::events::fields::ATTEMPT_COUNT, 
+                    tbox::fw::log::FieldValue::makeInt(state.attempt_count))
+            }
+        );
+
         return DiagErrorCode::SECURITY_ACCESS_DENIED;
     }
 
@@ -74,6 +90,16 @@ DiagErrorCode SecurityAccess::send_key(uint8_t level, const std::vector<uint8_t>
     state.unlocked = true;
     state.seed_requested = false;
     state.attempt_count = 0;
+
+    // 记录安全访问成功
+    tbox::diag::DiagLogAdapter::session().info(
+        tbox::diag::events::SECURITY_ACCESS_SUCCEEDED,
+        "Security access verification succeeded",
+        {
+            tbox::fw::log::Field(tbox::diag::events::fields::SECURITY_LEVEL, 
+                tbox::fw::log::FieldValue::makeString("0x" + std::to_string(level)))
+        }
+    );
 
     return DiagErrorCode::SUCCESS;
 }
