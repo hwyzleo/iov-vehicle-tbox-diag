@@ -1,5 +1,8 @@
 #include "service_dispatcher.h"
 #include "sec_service.h"
+#include "diag_log_adapter.h"
+#include "diag_log_events.h"
+#include "diag_context.h"
 #include <iostream>
 
 namespace tbox {
@@ -22,22 +25,57 @@ void ServiceDispatcher::register_route(uint8_t service_id, uint16_t did_or_rid,
 }
 
 DiagResponse ServiceDispatcher::dispatch(const DiagRequest& request) {
+    // 创建上下文作用域
+    std::string trace_id = tbox::diag::generate_trace_id();
+    std::string request_id = tbox::diag::generate_request_id();
+    auto scope = tbox::diag::make_context_scope(trace_id, request_id);
+    
+    auto start_time = std::chrono::steady_clock::now();
+    
+    DiagResponse response;
     switch (request.service_id) {
         case UdsService::DIAGNOSTIC_SESSION_CONTROL:
-            return handle_session_control(request);
+            response = handle_session_control(request);
+            break;
         case UdsService::TESTER_PRESENT:
-            return handle_tester_present(request);
+            response = handle_tester_present(request);
+            break;
         case UdsService::SECURITY_ACCESS:
-            return handle_security_access(request);
+            response = handle_security_access(request);
+            break;
         case UdsService::ROUTINE_CONTROL:
-            return handle_routine_control(request);
+            response = handle_routine_control(request);
+            break;
         case UdsService::READ_DATA_BY_IDENTIFIER:
-            return handle_read_data_by_identifier(request);
+            response = handle_read_data_by_identifier(request);
+            break;
         default:
-            return create_negative_response(request.service_id,
+            response = create_negative_response(request.service_id,
                                             Nrc::SERVICE_NOT_SUPPORTED,
                                             "DIAG-1004");
+            break;
     }
+    
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    
+    // 记录请求完成
+    tbox::diag::DiagLogAdapter::uds_router().debug(
+        tbox::diag::events::UDS_REQUEST_COMPLETED,
+        "UDS request completed",
+        {
+            tbox::fw::log::Field(tbox::diag::events::fields::SERVICE_ID, 
+                tbox::fw::log::FieldValue::makeString("0x" + std::to_string(request.service_id))),
+            tbox::fw::log::Field(tbox::diag::events::fields::POSITIVE, 
+                tbox::fw::log::FieldValue::makeBool(response.positive)),
+            tbox::fw::log::Field(tbox::diag::events::fields::NRC, 
+                tbox::fw::log::FieldValue::makeString("0x" + std::to_string(response.nrc))),
+            tbox::fw::log::Field(tbox::diag::events::fields::DURATION_MS, 
+                tbox::fw::log::FieldValue::makeInt(duration.count()))
+        }
+    );
+    
+    return response;
 }
 
 DiagResponse ServiceDispatcher::handle_session_control(const DiagRequest& request) {
