@@ -1,7 +1,7 @@
 #pragma once
 
 #include "sec_interface.h"
-#include "sec_client.h"
+#include "tbox/sec/client.h"
 #include <memory>
 
 namespace tbox {

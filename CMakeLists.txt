@@ -7,6 +7,13 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_definitions("-Wall -lpthread -g")
 
+include(GNUInstallDirs)
+
+# ============================================================
+# Build options
+# ============================================================
+option(TBOX_DIAG_USE_FRAMEWORK_IPC "Use framework-ipc transport (ON) or disabled (OFF)" ON)
+
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
     if (APPLE)
         set(LIB_DIR ${PROJECT_SOURCE_DIR}/third_party/lib/arm64-apple-darwin)
@@ -68,10 +75,23 @@ set(LIB_SOURCES
     src/diag_context.cpp
 )
 
+if(TBOX_DIAG_USE_FRAMEWORK_IPC)
+    list(APPEND LIB_SOURCES
+        src/diag_ipc_dispatcher.cpp
+        src/diag_retry_policy.cpp
+    )
+    message(STATUS "DIAG IPC: framework-ipc mode (TBOX_DIAG_USE_FRAMEWORK_IPC=ON)")
+else()
+    message(STATUS "DIAG IPC: disabled (TBOX_DIAG_USE_FRAMEWORK_IPC=OFF)")
+endif()
+
 # 创建diag_service库
 add_library(diag_service_lib STATIC ${LIB_SOURCES})
 target_include_directories(diag_service_lib PUBLIC ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/third_party/include)
-target_link_libraries(diag_service_lib PUBLIC ProvClient yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json ${FRAMEWORK_LIB} fmt::fmt)
+target_link_libraries(diag_service_lib PUBLIC tbox::prov_client yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json ${FRAMEWORK_LIB} fmt::fmt)
+if(TBOX_DIAG_USE_FRAMEWORK_IPC)
+    target_compile_definitions(diag_service_lib PUBLIC TBOX_DIAG_USE_FRAMEWORK_IPC)
+endif()
 
 # 添加RealSecAdapter源文件
 # (removed: DIAG now talks to SEC over unix-socket IPC via SecIpcAdapter/SecClient)
@@ -83,12 +103,12 @@ add_library(sec_ipc_adapter
 
 target_include_directories(sec_ipc_adapter PUBLIC ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/include)
 target_link_libraries(sec_ipc_adapter
-    SecClient
+    tbox::sec_client
     ${FRAMEWORK_LIB}
 )
 
 add_executable(TboxDiagService src/main.cpp)
-target_link_libraries(TboxDiagService PRIVATE diag_service_lib sec_ipc_adapter ${FRAMEWORK_LIB} fmt::fmt)
+target_link_libraries(TboxDiagService PRIVATE diag_service_lib sec_ipc_adapter TboxProvLib ${FRAMEWORK_LIB} fmt::fmt)
 set_target_properties(TboxDiagService PROPERTIES OUTPUT_NAME tbox_diag)
 
 enable_testing()
@@ -131,9 +151,11 @@ add_executable(TboxDiagTests
     tests/test_transport_adapter.cpp
     tests/test_integration.cpp
     tests/test_certificate_request.cpp
+    tests/test_diag_retry_policy.cpp
+    tests/test_diag_ipc_dispatcher.cpp
 )
 target_include_directories(TboxDiagTests PRIVATE ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/include)
-target_link_libraries(TboxDiagTests PRIVATE diag_service_lib ${FRAMEWORK_LIB} GTest::GTest GTest::gmock GTest::Main)
+target_link_libraries(TboxDiagTests PRIVATE diag_service_lib TboxProvLib ${FRAMEWORK_LIB} GTest::GTest GTest::gmock GTest::Main)
 add_test(NAME TboxDiagTests COMMAND TboxDiagTests)
 
 # 添加测试
@@ -152,13 +174,82 @@ add_test(NAME CertificateRequestTest COMMAND test_certificate_request)
 
 # DIAG CLI 工具
 add_executable(diag_cli src/diag_cli.cpp)
-target_link_libraries(diag_cli PRIVATE diag_service_lib sec_ipc_adapter ${FRAMEWORK_LIB} fmt::fmt)
+target_link_libraries(diag_cli PRIVATE diag_service_lib sec_ipc_adapter TboxProvLib ${FRAMEWORK_LIB} fmt::fmt)
 
-# Custom test target that excludes sibling project tests (prov/sec)
-# These depend on external services and are not part of this project's unit tests
+# ============================================================
+# Client SDK library (tbox_diag_client / tbox::diag_client)
+# ============================================================
+set(CLIENT_SOURCES
+    src/diag_client.cpp
+    src/diag_retry_policy.cpp
+)
+
+add_library(tbox_diag_client STATIC ${CLIENT_SOURCES})
+add_library(tbox::diag_client ALIAS tbox_diag_client)
+
+# PUBLIC: only business facade/DTO headers
+target_include_directories(tbox_diag_client
+    PUBLIC
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+
+# PRIVATE: framework-ipc link and internal headers
+target_link_libraries(tbox_diag_client
+    PUBLIC nlohmann_json::nlohmann_json
+    PRIVATE ${FRAMEWORK_LIB}
+)
+target_include_directories(tbox_diag_client PRIVATE ${FRAMEWORK_SOURCE_DIR}/include)
+if(TBOX_DIAG_USE_FRAMEWORK_IPC)
+    target_compile_definitions(tbox_diag_client PRIVATE TBOX_DIAG_USE_FRAMEWORK_IPC)
+endif()
+
+# Install public SDK headers
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/tbox/diag/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tbox/diag
+    FILES_MATCHING PATTERN "*.h"
+)
+
+# Install client library
+install(TARGETS tbox_diag_client
+    EXPORT TboxDiagClientTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+# Export CMake config
+install(EXPORT TboxDiagClientTargets
+    FILE TboxDiagClientTargets.cmake
+    NAMESPACE tbox::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TboxDiagClient
+)
+
+# CMake config file
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/TboxDiagClientConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/TboxDiagClientConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TboxDiagClient
+)
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/TboxDiagClientConfig.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TboxDiagClient
+)
+
+# 添加测试
 add_custom_target(test_unit
   COMMAND ${CMAKE_CTEST_COMMAND} -E "TboxProvTests$$|TboxSecTests" --output-on-failure
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   COMMENT "Running unit tests (excluding prov/sec integration tests)"
   VERBATIM
 )
+
+# ============================================================
+# DIAG IPC integration test (Server + Client loopback)
+# ============================================================
+add_executable(TboxDiagIpcTests
+    tests/test_diag_ipc_integration.cpp
+)
+target_include_directories(TboxDiagIpcTests PRIVATE ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/include)
+target_link_libraries(TboxDiagIpcTests PRIVATE diag_service_lib tbox_diag_client TboxProvLib ${FRAMEWORK_LIB} GTest::GTest GTest::gmock GTest::Main)
+add_test(NAME TboxDiagIpcTests COMMAND TboxDiagIpcTests)

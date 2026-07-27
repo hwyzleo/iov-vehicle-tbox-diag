@@ -65,6 +65,17 @@ constexpr const char* SEC_CONNECTED = "diag.sec.connected";
 constexpr const char* SEC_CONNECTION_FAILED = "diag.sec.connection_failed";
 
 // ============================================================
+// IPC 事件
+// ============================================================
+constexpr const char* IPC_SERVER_STARTED = "diag.ipc.server_started";
+constexpr const char* IPC_SERVER_STOPPED = "diag.ipc.server_stopped";
+constexpr const char* IPC_SERVER_START_FAILED = "diag.ipc.server_start_failed";
+constexpr const char* IPC_DISPATCH = "diag.ipc.dispatch";
+constexpr const char* IPC_DISPATCHED = "diag.ipc.dispatched";
+constexpr const char* IPC_UNKNOWN_METHOD = "diag.ipc.unknown_method";
+constexpr const char* IPC_CLIENT_DISCONNECTED = "diag.ipc.client_disconnected";
+
+// ============================================================
 // UDS 编解码事件
 // ============================================================
 constexpr const char* UDS_DECODE_FAILED = "diag.uds.decode_failed";
@@ -75,6 +86,8 @@ constexpr const char* UDS_SEND_FAILED = "diag.uds.send_failed";
 // ============================================================
 namespace fields {
     constexpr const char* TRANSPORT = "transport";
+    constexpr const char* METHOD_ID = "method_id";
+    constexpr const char* PAYLOAD_BYTES = "payload_bytes";
     constexpr const char* SOURCE_HASH = "source_hash";
     constexpr const char* DURATION_MS = "duration_ms";
     constexpr const char* PREVIOUS_SESSION = "previous_session";

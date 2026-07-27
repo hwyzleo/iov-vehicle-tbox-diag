@@ -10,13 +10,14 @@
 #include "doip_adapter.h"
 #include "error_codes.h"
 #include "sec_ipc_adapter.h"
-#include "sec_client.h"
+#include "tbox/sec/client.h"
 #include "real_prov.h"
 #include "prov_client.h"
 #include "config.h"
 #include "diag_log_adapter.h"
 #include "diag_log_events.h"
 #include "diag_context.h"
+#include "ipc_types.h"
 
 using namespace tbox::diag;
 
@@ -112,6 +113,24 @@ int main() {
     DiagServiceConfig config;
     config.config_snapshot = config_snapshot;
 
+    // Read IPC configuration from common.ipc.* and diag.ipc.*
+    config.ipc_config.max_frame_bytes = static_cast<uint32_t>(
+        config_snapshot->getInt("common.ipc.max_frame_bytes", 10485760));
+    config.ipc_config.receive_timeout_ms = static_cast<uint32_t>(
+        config_snapshot->getInt("common.ipc.receive_timeout_ms", 60000));
+    config.ipc_config.connect_timeout_ms = static_cast<uint32_t>(
+        config_snapshot->getInt("common.ipc.connect_timeout_ms", 3000));
+    config.ipc_config.listen_backlog =
+        config_snapshot->getInt("common.ipc.listen_backlog", 5);
+    config.ipc_config.reconnect.initial_backoff_ms = static_cast<uint32_t>(
+        config_snapshot->getInt("common.ipc.reconnect.initial_backoff_ms", 100));
+    config.ipc_config.reconnect.max_backoff_ms = static_cast<uint32_t>(
+        config_snapshot->getInt("common.ipc.reconnect.max_backoff_ms", 5000));
+    config.ipc_config.reconnect.multiplier =
+        config_snapshot->getDouble("common.ipc.reconnect.multiplier", 2.0);
+    config.ipc_socket_path =
+        config_snapshot->getString("diag.ipc.socket_path", "/tmp/tbox-diag.sock");
+
     auto service = std::make_unique<DiagService>(config);
 
     // 通过 IPC 连接到 PROV 服务
@@ -181,6 +200,19 @@ int main() {
             tbox::fw::log::FieldValue::makeInt(doip_config.port))}
     );
 
+    // Start internal IPC server (framework-ipc)
+    if (!service->start_ipc_server()) {
+        tbox::diag::DiagLogAdapter::ipc().error(
+            tbox::diag::events::IPC_SERVER_START_FAILED,
+            "Failed to start DIAG IPC server"
+        );
+        return 1;
+    }
+    tbox::diag::DiagLogAdapter::ipc().info(
+        tbox::diag::events::IPC_SERVER_STARTED,
+        "DIAG IPC server is ready to accept connections"
+    );
+
     while (g_running) {
         service->process_pending_requests();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -190,6 +222,7 @@ int main() {
         tbox::diag::events::SERVICE_SHUTTING_DOWN,
         "DIAG service shutting down"
     );
+    service->stop_ipc_server();
     service->shutdown();
     tbox::diag::DiagLogAdapter::transport().info(
         tbox::diag::events::SERVICE_STOPPED,

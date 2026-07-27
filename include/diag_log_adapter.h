@@ -23,6 +23,7 @@ public:
     static tbox::fw::log::Logger uds_router();
     static tbox::fw::log::Logger downstream();
     static tbox::fw::log::Logger response();
+    static tbox::fw::log::Logger ipc();
 
 private:
     static bool s_initialized;

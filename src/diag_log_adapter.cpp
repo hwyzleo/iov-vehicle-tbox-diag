@@ -46,4 +46,8 @@ tbox::fw::log::Logger DiagLogAdapter::response() {
     return tbox::fw::log::Logger::get("response");
 }
 
+tbox::fw::log::Logger DiagLogAdapter::ipc() {
+    return tbox::fw::log::Logger::get("ipc");
+}
+
 } // namespace tbox::diag

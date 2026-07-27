@@ -2,6 +2,10 @@
 #include "uds_codec.h"
 #include "diag_log_adapter.h"
 #include "diag_log_events.h"
+#if defined(TBOX_DIAG_USE_FRAMEWORK_IPC)
+#include "ipc.h"
+#include "diag_ipc_dispatcher.h"
+#endif
 #include <iostream>
 #include <vector>
 
@@ -13,6 +17,10 @@ DiagService::DiagService() {
 }
 
 DiagService::DiagService(const DiagServiceConfig& config) : config_(config) {}
+
+DiagService::~DiagService() {
+    stop_ipc_server();
+}
 
 DiagErrorCode DiagService::initialize() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -185,6 +193,7 @@ void DiagService::process_pending_requests() {
 }
 
 void DiagService::shutdown() {
+    stop_ipc_server();
     std::lock_guard<std::mutex> lock(mutex_);
     if (transport_) {
         transport_->disconnect();
@@ -231,6 +240,98 @@ void DiagService::set_sec(std::shared_ptr<SecInterface> sec) {
         dispatcher_ = std::make_shared<ServiceDispatcher>(prov_, sec_, session_mgr_, security_access_);
         register_default_routes();
     }
+}
+
+// ============================================================
+// IPC server (framework-ipc)
+// ============================================================
+
+bool DiagService::start_ipc_server() {
+#if defined(TBOX_DIAG_USE_FRAMEWORK_IPC)
+    if (!initialized_) {
+        return false;
+    }
+
+    if (fw_ipc_server_) {
+        return true;  // already started
+    }
+
+    // Create dispatcher
+    ipc_dispatcher_ = std::make_unique<DiagIpcDispatcher>(this);
+
+    // Create framework-ipc Server
+    fw_ipc_server_ = std::make_unique<::tbox::fw::ipc::Server>(
+        config_.ipc_socket_path, config_.ipc_config);
+
+    // Register RequestHandler (adapt to dispatcher)
+    auto* dispatcher_ptr = ipc_dispatcher_.get();
+    auto request_handler = [dispatcher_ptr](uint32_t method_id,
+                                            std::string_view params_json,
+                                            int client_fd) -> std::string {
+        return dispatcher_ptr->dispatch(method_id, params_json, client_fd);
+    };
+
+    // disconnect handler: only log, framework handles fd/subscription cleanup
+    auto disconnect_handler = [](int client_fd) {
+        DiagLogAdapter::ipc().debug(
+            events::IPC_CLIENT_DISCONNECTED,
+            "Client disconnected (framework)",
+            {fw::log::Field("client_fd", fw::log::FieldValue::makeInt(client_fd))}
+        );
+    };
+
+    if (!fw_ipc_server_->start(std::move(request_handler), std::move(disconnect_handler))) {
+        fw_ipc_server_.reset();
+        ipc_dispatcher_.reset();
+        DiagLogAdapter::ipc().error(
+            events::IPC_SERVER_START_FAILED,
+            "Failed to start IPC server (framework-ipc)"
+        );
+        return false;
+    }
+
+    DiagLogAdapter::ipc().info(
+        events::IPC_SERVER_STARTED,
+        "IPC server started (framework-ipc)",
+        {fw::log::Field("socket_path", fw::log::FieldValue::makeString(config_.ipc_socket_path))}
+    );
+    return true;
+#else
+    return false;
+#endif
+}
+
+void DiagService::stop_ipc_server() {
+#if defined(TBOX_DIAG_USE_FRAMEWORK_IPC)
+    // Stop server first (waits for connection threads to exit), then reset members.
+    // This order ensures no dispatch handler is running when we destroy the dispatcher.
+    if (fw_ipc_server_) {
+        fw_ipc_server_->stop();
+        fw_ipc_server_.reset();
+        ipc_dispatcher_.reset();
+        DiagLogAdapter::ipc().info(
+            events::IPC_SERVER_STOPPED,
+            "IPC server stopped (framework-ipc)"
+        );
+    }
+#endif
+}
+
+// ============================================================
+// IPC query helpers (used by DiagIpcDispatcher)
+// ============================================================
+
+bool DiagService::is_tester_connected() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return transport_ && transport_->is_connected();
+}
+
+VinReadResult DiagService::get_vehicle_info() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!prov_) {
+        return VinReadResult{};
+    }
+    return prov_->read_vin();
 }
 
 DiagErrorCode DiagService::load_config() {

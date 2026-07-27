@@ -2,7 +2,7 @@
 #include "real_prov.h"
 #include "prov_client.h"
 #include "sec_ipc_adapter.h"
-#include "sec_client.h"
+#include "tbox/sec/client.h"
 #include "config.h"
 #include <iostream>
 #include <string>
