@@ -61,6 +61,8 @@ constexpr const char* CONFIG_LOADED = "diag.config.loaded";
 // ============================================================
 constexpr const char* PROV_CONNECTED = "diag.prov.connected";
 constexpr const char* PROV_CONNECTION_FAILED = "diag.prov.connection_failed";
+constexpr const char* SEC_CONNECTED = "diag.sec.connected";
+constexpr const char* SEC_CONNECTION_FAILED = "diag.sec.connection_failed";
 
 // ============================================================
 // UDS 编解码事件

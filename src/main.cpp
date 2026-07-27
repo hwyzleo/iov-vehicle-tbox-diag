@@ -9,11 +9,10 @@
 #include "diag_service.h"
 #include "doip_adapter.h"
 #include "error_codes.h"
-#include "real_sec_adapter.h"
-#include "sec_service.h"
+#include "sec_ipc_adapter.h"
+#include "sec_client.h"
 #include "real_prov.h"
 #include "prov_client.h"
-#include "prov_to_sec_adapter.h"
 #include "config.h"
 #include "diag_log_adapter.h"
 #include "diag_log_events.h"
@@ -139,44 +138,29 @@ int main() {
     );
     service->set_prov(std::make_shared<RealProvAdapter>(prov_client));
 
-    // 创建SEC服务所需目录
-    std::filesystem::create_directories("/var/tbox");
-
-    // 创建空状态文件（如果不存在）
-    std::string state_file = "/var/tbox/sec_state.json";
-    if (!std::filesystem::exists(state_file)) {
-        std::ofstream f(state_file);
-        f << "{}";
-        f.close();
-    }
-
-    // 初始化SEC服务
-    tbox::sec::SecServiceConfig sec_config;
-    sec_config.hsm_type = "software";
-    sec_config.hsm_config_path = "/etc/tbox/hsm_config.yaml";
-    sec_config.state_file_path = state_file;
-    sec_config.ca_cert_path = "/Users/hwyz_leo/Docker/step/certs/intermediate_ca.crt";
-    sec_config.cloud_config.oapi_endpoint = "https://oapi.example.com";
-    sec_config.cloud_config.timeout_ms = 30000;
-    sec_config.cloud_config.retry_count = 3;
-    sec_config.cloud_config.retry_delay_ms = 1000;
-
-    auto sec_service = std::make_shared<tbox::sec::SecService>(sec_config);
-    sec_service->set_prov_service(std::make_shared<ProvToSecAdapter>(prov_client));
-    auto sec_init = sec_service->initialize();
-    if (sec_init != tbox::sec::ErrorCode::SUCCESS) {
+    // 通过 IPC 连接到 SEC 服务
+    std::string sec_socket_path = config_snapshot->getString("sec.ipc_socket_path", "/tmp/tbox-sec.sock");
+    auto sec_client = std::make_shared<tbox::sec::SecClient>(sec_socket_path);
+    if (!sec_client->connect()) {
         tbox::diag::DiagLogAdapter::downstream().fatal(
-            tbox::diag::events::DOWNSTREAM_CALL_FAILED,
-            "Failed to initialize SEC service",
+            tbox::diag::events::SEC_CONNECTION_FAILED,
+            "Failed to connect to SEC IPC service",
             {tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM,
                 tbox::fw::log::FieldValue::makeString("sec")),
-             tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM_ERROR_CODE,
-                tbox::fw::log::FieldValue::makeString(
-                    tbox::sec::error_code_to_string(sec_init)))}
+             tbox::fw::log::Field("socket_path",
+                tbox::fw::log::FieldValue::makeString(sec_socket_path))}
         );
         return 1;
     }
-    service->set_sec(std::make_shared<RealSecAdapter>(sec_service));
+    tbox::diag::DiagLogAdapter::downstream().info(
+        tbox::diag::events::SEC_CONNECTED,
+        "Connected to SEC IPC service",
+        {tbox::fw::log::Field(tbox::diag::events::fields::DOWNSTREAM,
+            tbox::fw::log::FieldValue::makeString("sec")),
+         tbox::fw::log::Field("socket_path",
+            tbox::fw::log::FieldValue::makeString(sec_socket_path))}
+    );
+    service->set_sec(std::make_shared<SecIpcAdapter>(sec_client));
     service->set_transport(doip);
 
     auto result = service->initialize();

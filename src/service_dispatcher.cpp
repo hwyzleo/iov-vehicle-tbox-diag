@@ -1,5 +1,4 @@
 #include "service_dispatcher.h"
-#include "sec_service.h"
 #include "diag_log_adapter.h"
 #include "diag_log_events.h"
 #include "diag_context.h"
