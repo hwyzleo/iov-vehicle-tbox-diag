@@ -131,6 +131,17 @@ DiagResponse ServiceDispatcher::handle_tester_present(const DiagRequest& request
 
 DiagResponse ServiceDispatcher::handle_security_access(const DiagRequest& request) {
     uint8_t raw_level = request.sub_function & 0x7F;
+
+    // TBOX-DIAG-DSN-CR-005: only level-1 sub-functions are supported after
+    // masking suppressPosRspMsgIndicationBit (bit7): 0x01=requestSeed,
+    // 0x02=sendKey. Anything else -> NRC 0x12 subFunctionNotSupported.
+    if (raw_level != UdsSecurityLevel::LEVEL_1 &&
+        raw_level != (UdsSecurityLevel::LEVEL_1 + 1)) {
+        return create_negative_response(UdsService::SECURITY_ACCESS,
+                                        Nrc::SUB_FUNCTION_NOT_SUPPORTED,
+                                        "DIAG-1004");
+    }
+
     bool is_request_seed = (raw_level & 0x01) != 0;
 
     if (is_request_seed) {
@@ -221,8 +232,8 @@ DiagResponse ServiceDispatcher::handle_routine_control(const DiagRequest& reques
         return handle_inject_certificate(request);
     }
 
-    // 检查安全访问
-    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
+    // 检查安全访问（TBOX-DIAG-DSN-CR-005: 统一 level-1 状态键 0x01）
+    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_1)) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::SECURITY_ACCESS_DENIED,
                                         error_code_to_string(DiagErrorCode::SECURITY_ACCESS_DENIED));
@@ -287,21 +298,21 @@ DiagResponse ServiceDispatcher::handle_generate_key_pair(const DiagRequest& requ
         );
     }
 
-    // 检查安全访问
-    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
+    // 检查安全访问（TBOX-DIAG-DSN-CR-005: 统一 level-1 状态键 0x01）
+    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_1)) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::SECURITY_ACCESS_DENIED,
                                         error_code_to_string(DiagErrorCode::SECURITY_ACCESS_DENIED));
     }
 
-    // 检查SEC服务可用性
+    // 检查 SEC 服务可用性
     if (!sec_ || !sec_->is_available()) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::CONDITIONS_NOT_CORRECT,
                                         error_code_to_string(DiagErrorCode::SEC_UNAVAILABLE));
     }
 
-    // 调用SEC服务生成密钥对
+    // 调用 SEC 服务生成密钥对
     if (!sec_->generate_key_pair()) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::GENERAL_PROGRAMMING_FAILURE,
@@ -329,21 +340,21 @@ DiagResponse ServiceDispatcher::handle_read_csr(const DiagRequest& request) {
         );
     }
 
-    // 检查安全访问
-    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
+    // 检查安全访问（TBOX-DIAG-DSN-CR-005: 统一 level-1 状态键 0x01）
+    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_1)) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::SECURITY_ACCESS_DENIED,
                                         error_code_to_string(DiagErrorCode::SECURITY_ACCESS_DENIED));
     }
 
-    // 检查SEC服务可用性
+    // 检查 SEC 服务可用性
     if (!sec_ || !sec_->is_available()) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::CONDITIONS_NOT_CORRECT,
                                         error_code_to_string(DiagErrorCode::SEC_UNAVAILABLE));
     }
 
-    // 获取CSR
+    // 获取 CSR
     std::vector<uint8_t> csr_der;
     bool result = sec_->get_csr(csr_der);
     DiagLogAdapter::downstream().debug(
@@ -390,14 +401,14 @@ DiagResponse ServiceDispatcher::handle_inject_certificate(const DiagRequest& req
         );
     }
 
-    // 检查安全访问
-    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_27)) {
+    // 检查安全访问（TBOX-DIAG-DSN-CR-005: 统一 level-1 状态键 0x01）
+    if (!security_access_->is_unlocked(UdsSecurityLevel::LEVEL_1)) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::SECURITY_ACCESS_DENIED,
                                         error_code_to_string(DiagErrorCode::SECURITY_ACCESS_DENIED));
     }
 
-    // 检查SEC服务可用性
+    // 检查 SEC 服务可用性
     if (!sec_ || !sec_->is_available()) {
         return create_negative_response(UdsService::ROUTINE_CONTROL,
                                         Nrc::CONDITIONS_NOT_CORRECT,

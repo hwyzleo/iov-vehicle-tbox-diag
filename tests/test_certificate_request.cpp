@@ -43,13 +43,13 @@ protected:
     void unlock_security_access() {
         DiagRequest seed_request;
         seed_request.service_id = UdsService::SECURITY_ACCESS;
-        seed_request.sub_function = UdsSecurityLevel::LEVEL_27;
+        seed_request.sub_function = UdsSecurityLevel::LEVEL_1;
         seed_request.source_address = 0x0010;
         diag_service_->process_request(seed_request);
 
         DiagRequest key_request;
         key_request.service_id = UdsService::SECURITY_ACCESS;
-        key_request.sub_function = (UdsSecurityLevel::LEVEL_27 + 1) | 0x80;
+        key_request.sub_function = (UdsSecurityLevel::LEVEL_1 + 1) | 0x80;
         key_request.payload = {0x12, 0x34, 0x56, 0x78};
         key_request.source_address = 0x0010;
         diag_service_->process_request(key_request);

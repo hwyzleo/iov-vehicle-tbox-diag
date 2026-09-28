@@ -75,7 +75,7 @@ TEST_F(ServiceDispatcherTest, TesterPresent) {
 TEST_F(ServiceDispatcherTest, SecurityAccessRequestSeed) {
     DiagRequest request;
     request.service_id = UdsService::SECURITY_ACCESS;
-    request.sub_function = UdsSecurityLevel::LEVEL_27;  // Request seed
+    request.sub_function = UdsSecurityLevel::LEVEL_1;  // Request seed
     request.source_address = 0x0010;
 
     auto response = dispatcher->dispatch(request);
@@ -87,19 +87,73 @@ TEST_F(ServiceDispatcherTest, SecurityAccessSendKey) {
     // First request seed
     DiagRequest seed_req;
     seed_req.service_id = UdsService::SECURITY_ACCESS;
-    seed_req.sub_function = UdsSecurityLevel::LEVEL_27;
+    seed_req.sub_function = UdsSecurityLevel::LEVEL_1;
     seed_req.source_address = 0x0010;
     dispatcher->dispatch(seed_req);
 
     // Then send key
     DiagRequest key_req;
     key_req.service_id = UdsService::SECURITY_ACCESS;
-    key_req.sub_function = (UdsSecurityLevel::LEVEL_27 + 1) | 0x80;
+    key_req.sub_function = (UdsSecurityLevel::LEVEL_1 + 1) | 0x80;
     key_req.payload = {0xAA, 0xBB, 0xCC, 0xDD};
     key_req.source_address = 0x0010;
 
     auto response = dispatcher->dispatch(key_req);
     EXPECT_TRUE(response.positive);
+}
+
+// TBOX-DIAG-DSN-CR-005: requestSeed with suppressPosRspMsgIndicationBit (0x81)
+// must be masked to 0x01 and handled as level-1 requestSeed.
+TEST_F(ServiceDispatcherTest, SecurityAccessRequestSeedWithSuppressBit) {
+    DiagRequest request;
+    request.service_id = UdsService::SECURITY_ACCESS;
+    request.sub_function = UdsSecurityLevel::LEVEL_1 | 0x80;  // 0x81
+    request.source_address = 0x0010;
+
+    auto response = dispatcher->dispatch(request);
+    EXPECT_TRUE(response.positive);
+    EXPECT_FALSE(response.payload.empty());
+}
+
+// TBOX-DIAG-DSN-CR-005: sendKey without bit7 (0x02) is equally valid.
+TEST_F(ServiceDispatcherTest, SecurityAccessSendKeyNoSuppressBit) {
+    DiagRequest seed_req;
+    seed_req.service_id = UdsService::SECURITY_ACCESS;
+    seed_req.sub_function = UdsSecurityLevel::LEVEL_1;
+    seed_req.source_address = 0x0010;
+    dispatcher->dispatch(seed_req);
+
+    DiagRequest key_req;
+    key_req.service_id = UdsService::SECURITY_ACCESS;
+    key_req.sub_function = UdsSecurityLevel::LEVEL_1 + 1;  // 0x02, no bit7
+    key_req.payload = {0xAA, 0xBB, 0xCC, 0xDD};
+    key_req.source_address = 0x0010;
+
+    auto response = dispatcher->dispatch(key_req);
+    EXPECT_TRUE(response.positive);
+}
+
+// TBOX-DIAG-DSN-CR-005: unsupported SecurityAccess sub-function -> NRC 0x12.
+TEST_F(ServiceDispatcherTest, SecurityAccessUnsupportedSubFunction) {
+    DiagRequest request;
+    request.service_id = UdsService::SECURITY_ACCESS;
+    request.sub_function = 0x03;  // masked basicSubFunction not in {0x01, 0x02}
+    request.source_address = 0x0010;
+
+    auto response = dispatcher->dispatch(request);
+    EXPECT_FALSE(response.positive);
+    EXPECT_EQ(response.nrc, Nrc::SUB_FUNCTION_NOT_SUPPORTED);
+}
+
+TEST_F(ServiceDispatcherTest, SecurityAccessUnsupportedSubFunctionWithSuppressBit) {
+    DiagRequest request;
+    request.service_id = UdsService::SECURITY_ACCESS;
+    request.sub_function = 0x83;  // 0x03 + suppressPosRspMsgIndicationBit
+    request.source_address = 0x0010;
+
+    auto response = dispatcher->dispatch(request);
+    EXPECT_FALSE(response.positive);
+    EXPECT_EQ(response.nrc, Nrc::SUB_FUNCTION_NOT_SUPPORTED);
 }
 
 TEST_F(ServiceDispatcherTest, RoutineControlWithoutSecurity) {
@@ -119,13 +173,13 @@ TEST_F(ServiceDispatcherTest, RoutineControlWithSecurity) {
     // Unlock security
     DiagRequest seed_req;
     seed_req.service_id = UdsService::SECURITY_ACCESS;
-    seed_req.sub_function = UdsSecurityLevel::LEVEL_27;
+    seed_req.sub_function = UdsSecurityLevel::LEVEL_1;
     seed_req.source_address = 0x0010;
     dispatcher->dispatch(seed_req);
 
     DiagRequest key_req;
     key_req.service_id = UdsService::SECURITY_ACCESS;
-    key_req.sub_function = (UdsSecurityLevel::LEVEL_27 + 1) | 0x80;
+    key_req.sub_function = (UdsSecurityLevel::LEVEL_1 + 1) | 0x80;
     key_req.payload = {0xAA};
     key_req.source_address = 0x0010;
     dispatcher->dispatch(key_req);
@@ -147,13 +201,13 @@ TEST_F(ServiceDispatcherTest, RoutineControlInvalidPayload) {
     // Unlock security first
     DiagRequest seed_req;
     seed_req.service_id = UdsService::SECURITY_ACCESS;
-    seed_req.sub_function = UdsSecurityLevel::LEVEL_27;
+    seed_req.sub_function = UdsSecurityLevel::LEVEL_1;
     seed_req.source_address = 0x0010;
     dispatcher->dispatch(seed_req);
 
     DiagRequest key_req;
     key_req.service_id = UdsService::SECURITY_ACCESS;
-    key_req.sub_function = (UdsSecurityLevel::LEVEL_27 + 1) | 0x80;
+    key_req.sub_function = (UdsSecurityLevel::LEVEL_1 + 1) | 0x80;
     key_req.payload = {0xAA};
     key_req.source_address = 0x0010;
     dispatcher->dispatch(key_req);
@@ -206,6 +260,78 @@ TEST_F(ServiceDispatcherTest, ProvUnavailable) {
     auto response = dispatcher->dispatch(request);
     EXPECT_FALSE(response.positive);
     EXPECT_EQ(response.nrc, Nrc::CONDITIONS_NOT_CORRECT);
+}
+
+// TBOX-DIAG-DSN-CR-005 regression: cert RID (0xFF01) must succeed after
+// wire-level level-1 unlock (0x01 requestSeed -> 0x82 sendKey) in PROGRAMMING
+// session. Previously returned NRC 0x33 because unlock was stored under 0x01
+// but checked under LEVEL_27 (0x27).
+TEST_F(ServiceDispatcherTest, RoutineControlCertificateRidUnlocked) {
+    // Enter PROGRAMMING session (cert RIDs require it, else NRC 0x7F)
+    DiagRequest session_req;
+    session_req.service_id = UdsService::DIAGNOSTIC_SESSION_CONTROL;
+    session_req.sub_function = UdsSession::PROGRAMMING;
+    session_req.source_address = 0x0010;
+    session_req.transport = TransportType::DOIP;
+    dispatcher->dispatch(session_req);
+
+    // Wire-level level-1 unlock: 0x01 requestSeed -> 0x82 sendKey
+    DiagRequest seed_req;
+    seed_req.service_id = UdsService::SECURITY_ACCESS;
+    seed_req.sub_function = UdsSecurityLevel::LEVEL_1;
+    seed_req.source_address = 0x0010;
+    dispatcher->dispatch(seed_req);
+
+    DiagRequest key_req;
+    key_req.service_id = UdsService::SECURITY_ACCESS;
+    key_req.sub_function = (UdsSecurityLevel::LEVEL_1 + 1) | 0x80;  // 0x82
+    key_req.payload = {0xAA};
+    key_req.source_address = 0x0010;
+    dispatcher->dispatch(key_req);
+
+    // Generate key pair
+    DiagRequest request;
+    request.service_id = UdsService::ROUTINE_CONTROL;
+    request.sub_function = 0x01;
+    request.did_or_rid = Rid::GENERATE_KEY_PAIR;
+    request.source_address = 0x0010;
+
+    auto response = dispatcher->dispatch(request);
+    EXPECT_TRUE(response.positive);
+    EXPECT_EQ(response.service_id, UdsService::ROUTINE_CONTROL + 0x40);
+}
+
+TEST_F(ServiceDispatcherTest, RoutineControlCertificateRidLocked) {
+    // PROGRAMMING session but no security unlock -> NRC 0x33
+    DiagRequest session_req;
+    session_req.service_id = UdsService::DIAGNOSTIC_SESSION_CONTROL;
+    session_req.sub_function = UdsSession::PROGRAMMING;
+    session_req.source_address = 0x0010;
+    session_req.transport = TransportType::DOIP;
+    dispatcher->dispatch(session_req);
+
+    DiagRequest request;
+    request.service_id = UdsService::ROUTINE_CONTROL;
+    request.sub_function = 0x01;
+    request.did_or_rid = Rid::GENERATE_KEY_PAIR;
+    request.source_address = 0x0010;
+
+    auto response = dispatcher->dispatch(request);
+    EXPECT_FALSE(response.positive);
+    EXPECT_EQ(response.nrc, Nrc::SECURITY_ACCESS_DENIED);
+}
+
+TEST_F(ServiceDispatcherTest, RoutineControlCertificateRidWrongSession) {
+    // DEFAULT session -> cert RIDs must return NRC 0x7F before security check
+    DiagRequest request;
+    request.service_id = UdsService::ROUTINE_CONTROL;
+    request.sub_function = 0x01;
+    request.did_or_rid = Rid::GENERATE_KEY_PAIR;
+    request.source_address = 0x0010;
+
+    auto response = dispatcher->dispatch(request);
+    EXPECT_FALSE(response.positive);
+    EXPECT_EQ(response.nrc, Nrc::SERVICE_NOT_SUPPORTED_IN_SESSION);
 }
 
 } // namespace testing

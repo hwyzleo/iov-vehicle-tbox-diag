@@ -1,15 +1,12 @@
 [requires]
-yaml-cpp/0.8.0
 nlohmann_json/3.11.2
 gtest/1.14.0
-fmt/10.2.1
 
 [generators]
 CMakeDeps
 CMakeToolchain
 
 [options]
-yaml-cpp/*:shared=False
 nlohmann_json/*:shared=False
 gtest/*:shared=False
 

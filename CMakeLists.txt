@@ -28,8 +28,8 @@ elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     endif ()
 endif ()
 
-find_package(yaml-cpp REQUIRED)
-include_directories(${YAML_CPP_INCLUDE_DIRS})
+# yaml-cpp / spdlog 由 TBoxFramework 自包含提供（见下方 find_package(TBoxFramework)），
+# 不再单独 find_package，避免命中构建机上的 brew / conda 副本造成版本漂移。
 
 find_package(GTest REQUIRED)
 include_directories(${GTEST_INCLUDE_DIRS})
@@ -48,17 +48,19 @@ add_subdirectory(${SEC_SOURCE_DIR} ${CMAKE_BINARY_DIR}/sec EXCLUDE_FROM_ALL)
 # (they depend on external services and are not part of this project's unit tests)
 set_property(GLOBAL PROPERTY CTEST_EXCLUDE_FROM_TEST TboxProvTests TboxSecTests)
 
-# Framework library (sibling directory) - use pre-built library to avoid spdlog/fmt conflicts
-set(FRAMEWORK_SOURCE_DIR ${PROJECT_SOURCE_DIR}/../iov-vehicle-tbox-framework)
-set(FRAMEWORK_INCLUDE_DIR ${FRAMEWORK_SOURCE_DIR}/include)
-find_library(FRAMEWORK_LIB tbox-framework PATHS ${FRAMEWORK_SOURCE_DIR}/build NO_DEFAULT_PATH)
-if(NOT FRAMEWORK_LIB)
-    message(FATAL_ERROR "Framework library not found in ${FRAMEWORK_SOURCE_DIR}/build. Please build framework first.")
+# Framework library (sibling directory) - 统一通过 find_package 消费
+# framework 自包含 yaml-cpp / spdlog，查找前缀来自
+# iov-vehicle-tbox-framework/scripts/tbox-env.sh 的 TBOX_PREFIX（见 scripts/build.sh）。
+# 兄弟项目 prov / sec 通过 add_subdirectory 引入时也会 find_package，各自已做幂等保护。
+if(NOT TARGET TBoxFramework::config)
+    find_package(TBoxFramework REQUIRED)
 endif()
-message(STATUS "Found framework library: ${FRAMEWORK_LIB}")
+set(FRAMEWORK_LIB TBoxFramework::config TBoxFramework::log TBoxFramework::ipc)
+set(FRAMEWORK_INCLUDE_DIR ${TBoxFramework_INCLUDE_DIRS})
+message(STATUS "Using TBoxFramework headers: ${FRAMEWORK_INCLUDE_DIR}")
 
-# fmt (required by spdlog)
-find_package(fmt REQUIRED)
+# 不再 find_package(fmt)：spdlog 由 TBoxFramework 提供且自带 bundled fmt，
+# 本项目代码亦未直接使用 fmt。
 
 set(LIB_SOURCES
     src/diag_service.cpp
@@ -87,8 +89,8 @@ endif()
 
 # 创建diag_service库
 add_library(diag_service_lib STATIC ${LIB_SOURCES})
-target_include_directories(diag_service_lib PUBLIC ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/third_party/include)
-target_link_libraries(diag_service_lib PUBLIC tbox::prov_client yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json ${FRAMEWORK_LIB} fmt::fmt)
+target_include_directories(diag_service_lib PUBLIC ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_INCLUDE_DIR})
+target_link_libraries(diag_service_lib PUBLIC tbox::prov_client nlohmann_json::nlohmann_json ${FRAMEWORK_LIB})
 if(TBOX_DIAG_USE_FRAMEWORK_IPC)
     target_compile_definitions(diag_service_lib PUBLIC TBOX_DIAG_USE_FRAMEWORK_IPC)
 endif()
@@ -101,14 +103,14 @@ add_library(sec_ipc_adapter
     src/sec_ipc_adapter.cpp
 )
 
-target_include_directories(sec_ipc_adapter PUBLIC ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/include)
+target_include_directories(sec_ipc_adapter PUBLIC ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_INCLUDE_DIR})
 target_link_libraries(sec_ipc_adapter
     tbox::sec_client
     ${FRAMEWORK_LIB}
 )
 
 add_executable(TboxDiagService src/main.cpp)
-target_link_libraries(TboxDiagService PRIVATE diag_service_lib sec_ipc_adapter TboxProvLib ${FRAMEWORK_LIB} fmt::fmt)
+target_link_libraries(TboxDiagService PRIVATE diag_service_lib sec_ipc_adapter TboxProvLib ${FRAMEWORK_LIB})
 set_target_properties(TboxDiagService PROPERTIES OUTPUT_NAME tbox_diag)
 
 enable_testing()
@@ -126,7 +128,7 @@ add_executable(TboxDiagLogTests
 )
 target_include_directories(TboxDiagLogTests PRIVATE 
     ${PROJECT_SOURCE_DIR}/include
-    ${FRAMEWORK_SOURCE_DIR}/include
+    ${FRAMEWORK_INCLUDE_DIR}
 )
 target_link_libraries(TboxDiagLogTests PRIVATE 
     ${FRAMEWORK_LIB}
@@ -154,7 +156,7 @@ add_executable(TboxDiagTests
     tests/test_diag_retry_policy.cpp
     tests/test_diag_ipc_dispatcher.cpp
 )
-target_include_directories(TboxDiagTests PRIVATE ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/include)
+target_include_directories(TboxDiagTests PRIVATE ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_INCLUDE_DIR})
 target_link_libraries(TboxDiagTests PRIVATE diag_service_lib TboxProvLib ${FRAMEWORK_LIB} GTest::GTest GTest::gmock GTest::Main)
 add_test(NAME TboxDiagTests COMMAND TboxDiagTests)
 
@@ -174,7 +176,7 @@ add_test(NAME CertificateRequestTest COMMAND test_certificate_request)
 
 # DIAG CLI 工具
 add_executable(diag_cli src/diag_cli.cpp)
-target_link_libraries(diag_cli PRIVATE diag_service_lib sec_ipc_adapter TboxProvLib ${FRAMEWORK_LIB} fmt::fmt)
+target_link_libraries(diag_cli PRIVATE diag_service_lib sec_ipc_adapter TboxProvLib ${FRAMEWORK_LIB})
 
 # ============================================================
 # Client SDK library (tbox_diag_client / tbox::diag_client)
@@ -199,7 +201,7 @@ target_link_libraries(tbox_diag_client
     PUBLIC nlohmann_json::nlohmann_json
     PRIVATE ${FRAMEWORK_LIB}
 )
-target_include_directories(tbox_diag_client PRIVATE ${FRAMEWORK_SOURCE_DIR}/include)
+target_include_directories(tbox_diag_client PRIVATE ${FRAMEWORK_INCLUDE_DIR})
 if(TBOX_DIAG_USE_FRAMEWORK_IPC)
     target_compile_definitions(tbox_diag_client PRIVATE TBOX_DIAG_USE_FRAMEWORK_IPC)
 endif()
@@ -250,6 +252,6 @@ add_custom_target(test_unit
 add_executable(TboxDiagIpcTests
     tests/test_diag_ipc_integration.cpp
 )
-target_include_directories(TboxDiagIpcTests PRIVATE ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_SOURCE_DIR}/include)
+target_include_directories(TboxDiagIpcTests PRIVATE ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_INCLUDE_DIR})
 target_link_libraries(TboxDiagIpcTests PRIVATE diag_service_lib tbox_diag_client TboxProvLib ${FRAMEWORK_LIB} GTest::GTest GTest::gmock GTest::Main)
 add_test(NAME TboxDiagIpcTests COMMAND TboxDiagIpcTests)

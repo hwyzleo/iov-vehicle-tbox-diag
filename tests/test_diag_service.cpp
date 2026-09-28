@@ -79,7 +79,7 @@ TEST_F(DiagServiceTest, FullDiagnosticFlow) {
     // 2. Request seed
     DiagRequest seed_req;
     seed_req.service_id = UdsService::SECURITY_ACCESS;
-    seed_req.sub_function = UdsSecurityLevel::LEVEL_27;
+    seed_req.sub_function = UdsSecurityLevel::LEVEL_1;
     seed_req.source_address = 0x0010;
 
     resp = service->process_request(seed_req);
@@ -89,7 +89,7 @@ TEST_F(DiagServiceTest, FullDiagnosticFlow) {
     // 3. Send key
     DiagRequest key_req;
     key_req.service_id = UdsService::SECURITY_ACCESS;
-    key_req.sub_function = (UdsSecurityLevel::LEVEL_27 + 1) | 0x80;
+    key_req.sub_function = (UdsSecurityLevel::LEVEL_1 + 1) | 0x80;
     key_req.payload = {0xAA, 0xBB, 0xCC, 0xDD};
     key_req.source_address = 0x0010;
 

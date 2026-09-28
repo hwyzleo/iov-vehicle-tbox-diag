@@ -16,10 +16,15 @@ namespace UdsService {
     constexpr uint8_t ROUTINE_CONTROL = 0x31;
 }
 
-// UDS Security Levels
+// UDS Security Levels (SecurityAccess 0x27 sub-function based)
+// NOTE: 0x27 is the SecurityAccess *service* ID, not a security level.
+// Levels are addressed via sub-functions: level-1 requestSeed=0x01,
+// sendKey=0x02. Sub-function bit7 is suppressPosRspMsgIndicationBit and
+// must be masked (sub_function & 0x7F) before level identification.
+// (TBOX-DIAG-DSN-CR-005)
 namespace UdsSecurityLevel {
     constexpr uint8_t LEVEL_0 = 0x00;
-    constexpr uint8_t LEVEL_27 = 0x27;
+    constexpr uint8_t LEVEL_1 = 0x01;  // level-1 requestSeed sub-function / unlock state key
 }
 
 // UDS Session Types

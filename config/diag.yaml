@@ -14,6 +14,11 @@ common:
       initial_backoff_ms: 100
       max_backoff_ms: 5000
       multiplier: 2.0
+  # Logging (framework-config validates common.log; code reads common.log.*)
+  log:
+    level: "INFO"  # DEBUG, INFO, WARN, ERROR
+    enable_uds_logging: true
+    log_file: "/var/log/tbox/diag.log"
 
 # DIAG-specific IPC configuration
 diag:
@@ -107,10 +112,7 @@ routing:
       requires_unlock: true
 
 # Logging configuration
-log:
-  level: "INFO"  # DEBUG, INFO, WARN, ERROR
-  enable_uds_logging: true
-  log_file: "/var/log/tbox/diag.log"
+# 注意：日志配置的规范位置是 common.log（见文件开头），此处不再重复定义
 
 # Validation settings
 validation:

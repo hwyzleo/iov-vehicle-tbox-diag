@@ -280,10 +280,10 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // Step 2: Request security access seed
+        // Step 2: Request security access seed (level-1 requestSeed = 0x01)
         DiagRequest seed_req;
         seed_req.service_id = UdsService::SECURITY_ACCESS;
-        seed_req.sub_function = 0x27;  // Request seed level 0x27
+        seed_req.sub_function = 0x01;  // Request seed level 1
         seed_req.source_address = 0x0E80;
         seed_req.transport = TransportType::DOIP;
         auto seed_resp = service.process_request(seed_req);
@@ -299,10 +299,10 @@ int main(int argc, char* argv[]) {
             key.push_back(seed_resp.payload[i] ^ 0x01);
         }
 
-        // Step 4: Send key
+        // Step 4: Send key (level-1 sendKey = 0x02, bit7 = suppressPosRspMsgIndicationBit)
         DiagRequest key_req;
         key_req.service_id = UdsService::SECURITY_ACCESS;
-        key_req.sub_function = 0x28;  // Send key (requestSeed level + 1)
+        key_req.sub_function = 0x02 | 0x80;  // Send key (requestSeed level + 1)
         key_req.payload = key;
         key_req.source_address = 0x0E80;
         key_req.transport = TransportType::DOIP;
