@@ -1,0 +1,28 @@
+[Unit]
+Description=TBOX Diagnostic Service
+After=network.target tbox-prov.service tbox-sec.service
+Wants=network.target
+
+[Service]
+Type=simple
+# 正式发布唯一入口：由 diag-runtime 安装到 /usr/bin/tbox_diag（CMake OUTPUT_NAME）。
+# 禁止指向遗留单体布局 /opt/tbox/bin/diag —— 该产物不由任何现行 install 规则生成。
+ExecStart=/usr/bin/tbox_diag
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+# 不启用 PrivateTmp：DIAG 既创建自身 /tmp/tbox-diag.sock（framework-ipc Server），
+# 又作为 client 连接 PROV 的 /tmp/tbox-prov.sock 与 SEC 的 /tmp/tbox-sec.sock。
+# PrivateTmp 会隔离 /tmp，使 main.cpp 中 prov_client->connect() 失败 → 退出码 1。
+ReadWritePaths=/var/tbox /var/log/tbox /tmp
+
+# Resource limits
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

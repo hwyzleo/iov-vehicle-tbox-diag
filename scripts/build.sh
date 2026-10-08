@@ -127,7 +127,8 @@ configure_project() {
     cmake .. \
         -DCMAKE_TOOLCHAIN_FILE=${BUILD_DIR}/conan_toolchain.cmake \
         -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
-        -DTBoxFramework_DIR="${TBoxFramework_DIR}"
+        -DCMAKE_PREFIX_PATH="${TBOX_PREFIX}" \
+        -DTboxFramework_DIR="${TBOX_PREFIX}/lib/cmake/TboxFramework"
 
     if [ $? -ne 0 ]; then
         print_error "CMake 配置失败"

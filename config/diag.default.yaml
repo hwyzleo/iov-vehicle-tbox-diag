@@ -1,0 +1,115 @@
+# TBOX DIAG Service Configuration (production default template)
+#
+# 发布默认模板边界（对齐 PROV CR-010 §5 / SEC CR-012 §9）：
+#   - 由 diag-runtime 安装为 /etc/tbox/conf.d/diag.yaml（文件名无 .default）。
+#   - 不含顶层 common:（正式 common 由 BUILD
+#     configs/orin/rootfs/etc/tbox/common.yaml 唯一提供；DIAG 只消费，
+#     不安装、不内联副本）。common.log / common.store 请勿在此声明。
+#   - 不含 VIN、Seed/Key 材料、证书、Token 等设备唯一值或秘密。
+#   - 开发用 config/diag.yaml（含顶层 common: 与 store.root: "."）不安装。
+#
+# BUILD 有 configs/orin/rootfs/etc/tbox/conf.d/diag.yaml 时整文件覆盖本模板
+# （不执行 YAML 深度合并）。
+
+# DIAG 服务专属配置
+diag:
+  ipc:
+    # framework-ipc Server 监听路径；tbox-diag.service 未启用 PrivateTmp，
+    # 故 /tmp 为各服务共享视图。
+    socket_path: "/tmp/tbox-diag.sock"
+  log:
+    level: "info"
+
+# 下游服务 IPC 地址（main.cpp 读取 prov.ipc_socket_path / sec.ipc_socket_path）
+# 注意：这里是 DIAG 作为 client 的连接目标，与 PROV/SEC 各自 conf.d 中的
+# 服务端声明互不可见（framework-config 只合并 common.yaml + conf.d/diag.yaml）。
+prov:
+  ipc_socket_path: "/tmp/tbox-prov.sock"
+
+sec:
+  ipc_socket_path: "/tmp/tbox-sec.sock"
+
+# 传输层配置
+transport:
+  # 传输类型："doip" 或 "do_can"
+  type: "doip"
+
+  # DoIP (Diagnostic over IP) 配置
+  doip:
+    listen_address: "0.0.0.0"
+    port: 13400
+    local_address: 0x0001
+    accept_timeout_ms: 1000
+
+  # DoCAN (Diagnostic over CAN) 配置
+  do_can:
+    can_interface: "can0"
+    tx_id: 0x7E0
+    rx_id: 0x7E8
+    connect_timeout_ms: 5000
+
+# 会话定时参数（ISO 14229）
+timing:
+  # P2 client 超时（ms）
+  p2: 5000
+  # P2* client 超时（ms，response pending）
+  p2_star: 5000
+  # S3 会话保活超时（ms）
+  s3: 5000
+
+# 安全访问（0x27）配置：不含任何 Seed/Key 材料，校验委托 SEC
+security:
+  # 锁定前允许的最大失败次数
+  max_attempts: 3
+  # 锁定时长（ms）
+  lockout_duration_ms: 10000
+
+# 诊断会话能力
+session:
+  default:
+    enabled: true
+  extended:
+    enabled: true
+    require_security: false
+  programming:
+    enabled: true
+    require_security: true
+
+# UDS 服务路由
+routing:
+  # ReadDataByIdentifier (0x22) 路由
+  read_data:
+    - did: 0xF190
+      name: "VIN"
+      downstream: "PROV"
+      requires_unlock: false
+    - did: 0xF191
+      name: "BINDING_STATE"
+      downstream: "PROV"
+      requires_unlock: false
+
+  # RoutineControl (0x31) 路由
+  routine_control:
+    - rid: 0xFF00
+      name: "WRITE_VIN_ROUTINE"
+      downstream: "PROV"
+      requires_unlock: true
+    - rid: 0xFF01
+      name: "CERTIFICATE_REQUEST"
+      downstream: "SEC"
+      requires_unlock: true
+    - rid: 0xFF02
+      name: "READ_CSR"
+      downstream: "SEC"
+      requires_unlock: true
+    - rid: 0xFF03
+      name: "INJECT_CERTIFICATE"
+      downstream: "SEC"
+      requires_unlock: true
+
+# 报文校验（生产 fail-closed，不放宽）
+validation:
+  # 按 ISO 14229 严格校验报文长度
+  strict_message_length: true
+  # 同一时刻只允许一个 Tester
+  single_tester_mode: true
