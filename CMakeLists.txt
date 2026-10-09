@@ -192,9 +192,10 @@ target_link_libraries(test_certificate_request
 # 添加测试到CTest
 add_test(NAME CertificateRequestTest COMMAND test_certificate_request)
 
-# SEC IPC 适配器重连回归测试（需要链接 sec_ipc_adapter 与 framework-ipc）
+# 下游 IPC 适配器重连回归测试（SEC / PROV，需链接 sec_ipc_adapter 与 framework-ipc）
 add_executable(TboxDiagSecIpcTests
     tests/test_sec_ipc_adapter.cpp
+    tests/test_real_prov_reconnect.cpp
 )
 target_link_libraries(TboxDiagSecIpcTests
     PRIVATE diag_service_lib sec_ipc_adapter TboxProvLib ${FRAMEWORK_LIB}

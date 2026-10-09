@@ -147,14 +147,57 @@ VinReadResult RealProvAdapter::read_vin() {
     return result;
 }
 
+bool RealProvAdapter::ensure_connected() const {
+    if (!client_) {
+        return false;
+    }
+    if (client_->is_connected()) {
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(connect_mutex_);
+    // 双检：可能已被并发调用重连成功。
+    if (client_->is_connected()) {
+        return true;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+    if (connect_attempted_ && now - last_connect_attempt_ < kReconnectMinInterval) {
+        return false;
+    }
+    connect_attempted_ = true;
+    last_connect_attempt_ = now;
+
+    const bool ok = client_->connect();
+    if (ok) {
+        DiagLogAdapter::downstream().info(
+            events::PROV_CONNECTED,
+            "PROV IPC reconnected",
+            {fw::log::Field(events::fields::DOWNSTREAM,
+                fw::log::FieldValue::makeString("prov"))}
+        );
+    } else {
+        DiagLogAdapter::downstream().warn(
+            events::PROV_CONNECTION_FAILED,
+            "PROV IPC reconnect failed",
+            {fw::log::Field(events::fields::DOWNSTREAM,
+                fw::log::FieldValue::makeString("prov"))}
+        );
+    }
+    return ok;
+}
+
 bool RealProvAdapter::is_available() const {
-    return client_ && client_->is_connected();
+    return ensure_connected();
 }
 
 bool RealProvAdapter::reconnect() {
     if (!client_) {
         return false;
     }
+    std::lock_guard<std::mutex> lock(connect_mutex_);
+    connect_attempted_ = true;
+    last_connect_attempt_ = std::chrono::steady_clock::now();
     client_->disconnect();
     return client_->connect();
 }

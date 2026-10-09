@@ -62,11 +62,23 @@ public:
         return inject_certificate_result_;
     }
 
+    bool inject_certificate(const std::vector<uint8_t>& cert_der,
+                            CertInjectFailure& failure) override {
+        injected_certificate_ = cert_der;
+        failure = inject_certificate_result_ ? CertInjectFailure::NONE
+                                             : inject_certificate_failure_;
+        return inject_certificate_result_;
+    }
+
     void set_generate_key_pair_result(bool result) { generate_key_pair_result_ = result; }
     void set_csr_data(const std::vector<uint8_t>& data) { csr_data_ = data; }
     void set_get_csr_result(bool result) { get_csr_result_ = result; }
     void set_submit_csr_result(bool result) { submit_csr_result_ = result; }
     void set_inject_certificate_result(bool result) { inject_certificate_result_ = result; }
+    /// 设置失败时透出的原因（仅在 inject_certificate_result_ 为 false 时生效）。
+    void set_inject_certificate_failure(CertInjectFailure failure) {
+        inject_certificate_failure_ = failure;
+    }
     const std::vector<uint8_t>& get_injected_certificate() const { return injected_certificate_; }
 
 private:
@@ -79,6 +91,7 @@ private:
     bool get_csr_result_ = true;
     bool submit_csr_result_ = true;
     bool inject_certificate_result_ = true;
+    CertInjectFailure inject_certificate_failure_ = CertInjectFailure::UNKNOWN;
     std::vector<uint8_t> injected_certificate_;
 };
 

@@ -266,7 +266,45 @@ bool SecIpcAdapter::submit_csr() {
 }
 
 bool SecIpcAdapter::inject_certificate(const std::vector<uint8_t>& cert_der) {
+    CertInjectFailure ignored = CertInjectFailure::NONE;
+    return inject_certificate(cert_der, ignored);
+}
+
+namespace {
+
+/// 把 SEC 的 ErrorCode 收敛成 DIAG 需要区分的失败类别。
+CertInjectFailure map_sec_error(sec::ErrorCode code) {
+    switch (static_cast<uint32_t>(code)) {
+        case 8001:  // INVALID_PARAMETER —— provision 状态不允许
+            return CertInjectFailure::STATE_NOT_ALLOWED;
+        case 8002:  // NOT_INITIALIZED —— SEC 未初始化或正在停机
+        case 8005:  // CONNECTION_FAILED
+            return CertInjectFailure::SEC_UNAVAILABLE;
+        case 1003:  // KEY_NOT_FOUND —— 设备密钥对不存在
+            return CertInjectFailure::STATE_NOT_ALLOWED;
+        case 4001:  // CERT_VALIDATION_FAILED —— 链解析/形状/校验失败
+            return CertInjectFailure::INVALID_FORMAT;
+        case 4002:  // CERT_KEY_MISMATCH
+            return CertInjectFailure::KEY_MISMATCH;
+        case 4003:  // CERT_EXPIRED —— 含可信时间不可用导致无法判定有效期
+            return CertInjectFailure::CERT_EXPIRED;
+        case 4004:  // CERT_INSTALL_FAILED —— 校验通过但发布/存储失败
+            return CertInjectFailure::STORAGE_FAILED;
+        default:
+            return CertInjectFailure::UNKNOWN;
+    }
+}
+
+const char* cert_inject_failure_to_string(CertInjectFailure f) {
+    return cert_inject_failure_name(f);
+}
+
+}  // namespace
+
+bool SecIpcAdapter::inject_certificate(const std::vector<uint8_t>& cert_der,
+                                       CertInjectFailure& failure) {
     if (!is_available()) {
+        failure = CertInjectFailure::SEC_UNAVAILABLE;
         DiagLogAdapter::downstream().error(
             events::DOWNSTREAM_CALL_FAILED,
             "SEC IPC client not connected",
@@ -280,6 +318,7 @@ bool SecIpcAdapter::inject_certificate(const std::vector<uint8_t>& cert_der) {
 
     auto result = client_->inject_certificate(cert_der);
     if (result != sec::ErrorCode::SUCCESS) {
+        failure = map_sec_error(result);
         DiagLogAdapter::downstream().error(
             events::DOWNSTREAM_CALL_FAILED,
             "SEC IPC inject_certificate failed",
@@ -288,11 +327,15 @@ bool SecIpcAdapter::inject_certificate(const std::vector<uint8_t>& cert_der) {
              fw::log::Field(events::fields::OPERATION,
                 fw::log::FieldValue::makeString("inject_certificate")),
              fw::log::Field(events::fields::DOWNSTREAM_ERROR_CODE,
-                fw::log::FieldValue::makeInt(static_cast<int>(result)))}
+                fw::log::FieldValue::makeInt(static_cast<int>(result))),
+             fw::log::Field(events::fields::FAILURE_REASON,
+                fw::log::FieldValue::makeString(
+                    cert_inject_failure_to_string(failure)))}
         );
         return false;
     }
 
+    failure = CertInjectFailure::NONE;
     DiagLogAdapter::downstream().info(
         "diag.downstream.sec_ipc_inject_certificate",
         "SEC IPC inject_certificate succeeded"

@@ -423,10 +423,49 @@ DiagResponse ServiceDispatcher::handle_inject_certificate(const DiagRequest& req
     }
 
     // 注入证书
-    if (!sec_->inject_certificate(request.payload)) {
-        return create_negative_response(UdsService::ROUTINE_CONTROL,
-                                        Nrc::GENERAL_PROGRAMMING_FAILURE,
-                                        error_code_to_string(DiagErrorCode::CERT_INJECTION_FAILED));
+    //
+    // 失败原因需映射成可区分的 NRC：此前所有失败都返回 0x72
+    // generalProgrammingFailure，工位无法区分「状态不对、换个顺序重试即可」
+    // 和「证书本身非法、需要重新签发」。
+    CertInjectFailure failure = CertInjectFailure::NONE;
+    if (!sec_->inject_certificate(request.payload, failure)) {
+        uint8_t nrc = Nrc::GENERAL_PROGRAMMING_FAILURE;
+        DiagErrorCode err = DiagErrorCode::CERT_INJECTION_FAILED;
+        switch (failure) {
+            case CertInjectFailure::SEC_UNAVAILABLE:
+                // SEC 不可用：设备条件不满足，重试可能成功。
+                nrc = Nrc::CONDITIONS_NOT_CORRECT;
+                err = DiagErrorCode::SEC_UNAVAILABLE;
+                break;
+            case CertInjectFailure::STATE_NOT_ALLOWED:
+                // provision 状态不允许：典型的请求顺序错误（未生成密钥/未构建 CSR）。
+                nrc = Nrc::REQUEST_SEQUENCE_ERROR;
+                err = DiagErrorCode::SESSION_STATE_NOT_ALLOWED;
+                break;
+            case CertInjectFailure::INVALID_FORMAT:
+            case CertInjectFailure::KEY_MISMATCH:
+            case CertInjectFailure::CERT_EXPIRED:
+                // 请求携带的证书内容本身不可接受：重试同一份数据不会变好，
+                // 需要重新签发。用 0x31 与「设备侧编程失败」区分开。
+                nrc = Nrc::REQUEST_OUT_OF_RANGE;
+                break;
+            case CertInjectFailure::STORAGE_FAILED:
+            case CertInjectFailure::UNKNOWN:
+            case CertInjectFailure::NONE:
+                nrc = Nrc::GENERAL_PROGRAMMING_FAILURE;
+                break;
+        }
+        DiagLogAdapter::uds_router().warn(
+            "diag.uds.inject_certificate_failed",
+            "InjectCertificate rejected",
+            {fw::log::Field(events::fields::FAILURE_REASON,
+                fw::log::FieldValue::makeString(
+                    cert_inject_failure_name(failure))),
+             fw::log::Field("nrc",
+                fw::log::FieldValue::makeInt(static_cast<int64_t>(nrc)))}
+        );
+        return create_negative_response(UdsService::ROUTINE_CONTROL, nrc,
+                                        error_code_to_string(err));
     }
 
     // 返回正响应

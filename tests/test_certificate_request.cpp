@@ -237,6 +237,80 @@ TEST_F(CertificateRequestTest, InjectCertificateFailed) {
     EXPECT_EQ(response.nrc, Nrc::GENERAL_PROGRAMMING_FAILURE);
 }
 
+// 失败原因 -> NRC 映射（此前所有失败一律 0x72，工位无法区分可重试与不可重试）。
+TEST_F(CertificateRequestTest, InjectCertificateFailureMapsToDistinguishableNrc) {
+    struct Case {
+        CertInjectFailure failure;
+        uint8_t expected_nrc;
+        const char* what;
+    };
+    const Case cases[] = {
+        {CertInjectFailure::SEC_UNAVAILABLE,   Nrc::CONDITIONS_NOT_CORRECT,
+         "SEC 不可用 -> 0x22，条件不满足，可重试"},
+        {CertInjectFailure::STATE_NOT_ALLOWED, Nrc::REQUEST_SEQUENCE_ERROR,
+         "provision 状态不允许 -> 0x24，请求顺序错误"},
+        {CertInjectFailure::INVALID_FORMAT,    Nrc::REQUEST_OUT_OF_RANGE,
+         "链格式非法 -> 0x31，重发同一份数据无用"},
+        {CertInjectFailure::KEY_MISMATCH,      Nrc::REQUEST_OUT_OF_RANGE,
+         "公钥不匹配 -> 0x31"},
+        {CertInjectFailure::CERT_EXPIRED,      Nrc::REQUEST_OUT_OF_RANGE,
+         "证书过期/时间不可信 -> 0x31"},
+        {CertInjectFailure::STORAGE_FAILED,    Nrc::GENERAL_PROGRAMMING_FAILURE,
+         "存储发布失败 -> 0x72，设备侧编程失败"},
+        {CertInjectFailure::UNKNOWN,           Nrc::GENERAL_PROGRAMMING_FAILURE,
+         "未知原因 -> 0x72"},
+    };
+
+    for (const auto& c : cases) {
+        switch_to_programming_session();
+        unlock_security_access();
+
+        mock_sec_->set_inject_certificate_result(false);
+        mock_sec_->set_inject_certificate_failure(c.failure);
+
+        DiagRequest request;
+        request.service_id = UdsService::ROUTINE_CONTROL;
+        request.sub_function = 0x01;
+        request.did_or_rid = Rid::INJECT_CERTIFICATE;
+        request.payload = {0x30, 0x82, 0x03, 0x10};
+        request.source_address = 0x0010;
+
+        auto response = diag_service_->process_request(request);
+        EXPECT_FALSE(response.positive) << c.what;
+        EXPECT_EQ(response.nrc, c.expected_nrc)
+            << c.what << " (failure=" << cert_inject_failure_name(c.failure) << ")";
+    }
+}
+
+// 不可重试类（0x31）与可重试类（0x22 / 0x24）必须真的不同，
+// 否则工位依然无法据 NRC 决策。
+TEST_F(CertificateRequestTest, InjectCertificateNrcsAreActuallyDistinct) {
+    auto nrc_for = [&](CertInjectFailure f) {
+        switch_to_programming_session();
+        unlock_security_access();
+        mock_sec_->set_inject_certificate_result(false);
+        mock_sec_->set_inject_certificate_failure(f);
+        DiagRequest request;
+        request.service_id = UdsService::ROUTINE_CONTROL;
+        request.sub_function = 0x01;
+        request.did_or_rid = Rid::INJECT_CERTIFICATE;
+        request.payload = {0x30, 0x82, 0x03, 0x10};
+        request.source_address = 0x0010;
+        return diag_service_->process_request(request).nrc;
+    };
+
+    const uint8_t sequence = nrc_for(CertInjectFailure::STATE_NOT_ALLOWED);
+    const uint8_t bad_cert = nrc_for(CertInjectFailure::KEY_MISMATCH);
+    const uint8_t storage  = nrc_for(CertInjectFailure::STORAGE_FAILED);
+    const uint8_t unavail  = nrc_for(CertInjectFailure::SEC_UNAVAILABLE);
+
+    EXPECT_NE(sequence, bad_cert);
+    EXPECT_NE(sequence, storage);
+    EXPECT_NE(bad_cert, storage);
+    EXPECT_NE(unavail, sequence);
+    EXPECT_NE(unavail, bad_cert);
+}
+
 // Test session type enforcement - 在扩展会话中请求证书 RID 应返回 NRC 0x7F
 TEST_F(CertificateRequestTest, CertificateRidInExtendedSessionReturnsNrc7F) {
     switch_to_extended_session();

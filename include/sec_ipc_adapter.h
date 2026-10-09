@@ -30,6 +30,8 @@ public:
     bool get_csr(std::vector<uint8_t>& csr_der) override;
     bool submit_csr() override;
     bool inject_certificate(const std::vector<uint8_t>& cert_der) override;
+    bool inject_certificate(const std::vector<uint8_t>& cert_der,
+                            CertInjectFailure& failure) override;
 
     /// 连续重连尝试之间的最小间隔，避免 SEC 宕机时产生重连风暴。
     static constexpr std::chrono::milliseconds kReconnectMinInterval{500};
