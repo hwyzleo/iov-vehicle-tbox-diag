@@ -32,8 +32,15 @@ endif ()
 # yaml-cpp / spdlog 由 TBoxFramework 自包含提供（见下方 find_package(TBoxFramework)），
 # 不再单独 find_package，避免命中构建机上的 brew / conda 副本造成版本漂移。
 
-find_package(GTest REQUIRED)
-include_directories(${GTEST_INCLUDE_DIRS})
+# --- GTest（仅 HOST 单元测试；BUILD 目标构建不提供） ---
+# REQUIRED -> QUIET：BUILD 的受控交叉构建容器只构建/安装 declared targets
+# （TboxDiagService / tbox_diag_client），不提供 GTest。此前的 REQUIRED 让
+# tbox-someip-orin 全量 release-set 在 diag configure 阶段直接失败。
+# 与 prov / sec 的既有约定一致（find_package(GTest QUIET) + if(GTest_FOUND)）。
+find_package(GTest QUIET)
+if(GTest_FOUND)
+    include_directories(${GTEST_INCLUDE_DIRS})
+endif()
 
 find_package(nlohmann_json REQUIRED)
 
@@ -118,6 +125,12 @@ add_executable(TboxDiagService src/main.cpp)
 target_link_libraries(TboxDiagService PRIVATE diag_service_lib sec_ipc_adapter TboxProvLib ${FRAMEWORK_LIB})
 set_target_properties(TboxDiagService PROPERTIES OUTPUT_NAME tbox_diag)
 
+# ============================================================
+# Tests (HOST only)
+# BUILD 的受控交叉构建容器不提供 GTest，整段跳过；
+# 本段只注册测试目标，不影响 TboxDiagService / tbox_diag_client 的安装契约。
+# ============================================================
+if(GTest_FOUND)
 enable_testing()
 
 # DIAG Log Tests (standalone, no diag_service_lib dependency)
@@ -178,6 +191,7 @@ target_link_libraries(test_certificate_request
 
 # 添加测试到CTest
 add_test(NAME CertificateRequestTest COMMAND test_certificate_request)
+endif() # GTest_FOUND
 
 # DIAG CLI 工具
 add_executable(diag_cli src/diag_cli.cpp)
@@ -292,6 +306,8 @@ install(FILES
 )
 
 # 添加测试
+# HOST only：与上方测试段同条件，BUILD 容器无 GTest 时整段跳过。
+if(GTest_FOUND)
 add_custom_target(test_unit
   COMMAND ${CMAKE_CTEST_COMMAND} -E "TboxProvTests$$|TboxSecTests" --output-on-failure
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -308,3 +324,4 @@ add_executable(TboxDiagIpcTests
 target_include_directories(TboxDiagIpcTests PRIVATE ${PROJECT_SOURCE_DIR}/include ${FRAMEWORK_INCLUDE_DIR})
 target_link_libraries(TboxDiagIpcTests PRIVATE diag_service_lib tbox_diag_client TboxProvLib ${FRAMEWORK_LIB} GTest::GTest GTest::gmock GTest::Main)
 add_test(NAME TboxDiagIpcTests COMMAND TboxDiagIpcTests)
+endif() # GTest_FOUND
