@@ -33,6 +33,8 @@ public:
 
 private:
     bool doip_handshake();
+    /// 关闭当前客户端连接。调用方必须已持有 mutex_（避免与 disconnect() 重复加锁死锁）。
+    void close_client_locked();
     std::vector<uint8_t> build_doip_frame(uint16_t payload_type,
                                            const std::vector<uint8_t>& payload);
     bool parse_doip_frame(const std::vector<uint8_t>& raw,

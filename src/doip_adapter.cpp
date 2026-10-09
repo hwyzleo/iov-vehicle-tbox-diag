@@ -58,7 +58,8 @@ bool DoIpAdapter::start_server() {
         return false;
     }
 
-    if (listen(server_fd_, 1) < 0) {
+    // backlog 需 > 1: 单个残留/半开连接不应把 accept 队列占满导致后续 SYN 被丢弃
+    if (listen(server_fd_, 5) < 0) {
         DiagLogAdapter::transport().error(
             events::TRANSPORT_LISTEN_FAILED,
             "Failed to listen on DoIP socket"
@@ -146,15 +147,15 @@ bool DoIpAdapter::connect() {
             events::TRANSPORT_HANDSHAKE_FAILED,
             "DoIP handshake failed"
         );
-        disconnect();
+        // 注意: 此处已持有 mutex_，不能调用 disconnect()（会自锁死锁）。
+        close_client_locked();
         return false;
     }
 
     return true;
 }
 
-void DoIpAdapter::disconnect() {
-    std::lock_guard<std::mutex> lock(mutex_);
+void DoIpAdapter::close_client_locked() {
     if (client_fd_ >= 0) {
         ::close(client_fd_);
         client_fd_ = -1;
@@ -164,6 +165,11 @@ void DoIpAdapter::disconnect() {
         events::TRANSPORT_DISCONNECTED,
         "DoIP client disconnected"
     );
+}
+
+void DoIpAdapter::disconnect() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    close_client_locked();
 }
 
 bool DoIpAdapter::is_connected() const {
